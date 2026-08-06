@@ -1,0 +1,17 @@
+Backup Report Web App for AlmaLinux 8
+
+Version 0.6 adds a Login page, Logout, and Change Password in the Account menu.
+The username and password in backup-report.env create the initial account only.
+After first start, the password is stored as a PBKDF2 hash at:
+/var/lib/backup-report/data/web_auth.json
+
+Version 0.7 adds automatic Sangfor aCloud login and VM Backup screenshot capture.
+It uses the existing /usr/bin/chromium-browser and appends the capture to the PDF.
+
+1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
+2) รัน: chmod +x install.sh && ./install.sh
+3) แก้ไฟล์: /etc/backup-report/backup-report.env
+4) ตรวจฟอนต์ด้วย: fc-match -f '%{file}\n' 'Noto Sans Thai'
+5) ยังไม่ต้องเปิดพอร์ตหรือ Start service จนกว่าจะตรวจค่า configuration ครบ
+
+ตัวติดตั้งไม่แก้ Nginx, MySQL, Zabbix หรือ Firewall

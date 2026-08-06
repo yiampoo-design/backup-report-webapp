@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backup Report Portable</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <span class="eyebrow">PYLON IT OPERATIONS</span>
+      <h1>Backup Report Portable</h1>
+      <p>ดึงข้อมูลจาก Synology NAS สองแห่งและสร้างรายงาน PDF</p>
+    </div>
+    <div class="top-actions">
+      <span id="version" class="version"></span>
+      <button id="accountButton" class="button secondary" type="button">บัญชีผู้ใช้</button>
+      <button id="logoutButton" class="button ghost light" type="button">ออกจากระบบ</button>
+      <button id="openReports" class="button secondary">เปิดโฟลเดอร์รายงาน</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="notice warning">
+      <strong>รุ่นทดสอบภายใน</strong>
+      <span>การเชื่อมต่อ NAS ผ่าน HTTP จะแสดงคำเตือน กรุณาใช้ HTTPS หรือ VPN ก่อนแจกใช้งานจริง</span>
+    </section>
+
+    <section class="grid two">
+      <article class="card" data-site="primary">
+        <div class="card-head">
+          <div>
+            <span class="step">SITE 01</span>
+            <h2>Active Backup</h2>
+          </div>
+          <span id="primaryStatus" class="status idle">ยังไม่ทดสอบ</span>
+        </div>
+        <label>ชื่อ Site<input id="primaryLabel" autocomplete="off"></label>
+        <label>DSM URL<input id="primaryUrl" type="url" autocomplete="off"></label>
+        <div class="grid two compact">
+          <label>Username<input id="primaryUsername" autocomplete="username"></label>
+          <label>Password<input id="primaryPassword" type="password" autocomplete="current-password" placeholder="เว้นว่างเพื่อใช้รหัสที่บันทึกไว้"></label>
+        </div>
+        <div class="row between">
+          <label class="check"><input id="primaryVerify" type="checkbox"> ตรวจสอบ SSL Certificate</label>
+          <span id="primarySaved" class="saved"></span>
+        </div>
+        <div class="button-row">
+          <button class="button secondary test-button" data-site="primary">ทดสอบ</button>
+          <button class="button ghost probe-button" data-site="primary">ตรวจ API แบบอ่านอย่างเดียว</button>
+        </div>
+      </article>
+
+      <article class="card" data-site="remote">
+        <div class="card-head">
+          <div>
+            <span class="step">SITE 02</span>
+            <h2>Cloud Sync</h2>
+          </div>
+          <span id="remoteStatus" class="status idle">ยังไม่ทดสอบ</span>
+        </div>
+        <label>ชื่อ Site<input id="remoteLabel" autocomplete="off"></label>
+        <label>DSM URL<input id="remoteUrl" type="url" autocomplete="off"></label>
+        <div class="grid two compact">
+          <label>Username<input id="remoteUsername" autocomplete="username"></label>
+          <label>Password<input id="remotePassword" type="password" autocomplete="current-password" placeholder="เว้นว่างเพื่อใช้รหัสที่บันทึกไว้"></label>
+        </div>
+        <div class="row between">
+          <label class="check"><input id="remoteVerify" type="checkbox"> ตรวจสอบ SSL Certificate</label>
+          <span id="remoteSaved" class="saved"></span>
+        </div>
+        <div class="button-row">
+          <button class="button secondary test-button" data-site="remote">ทดสอบ</button>
+          <button class="button ghost probe-button" data-site="remote">ตรวจ API แบบอ่านอย่างเดียว</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="card" data-site="sangfor">
+      <div class="card-head">
+        <div>
+          <span class="step">SITE 03</span>
+          <h2>Sangfor aCloud</h2>
+        </div>
+        <span id="sangforStatus" class="status idle">ยังไม่ทดสอบ</span>
+      </div>
+      <div class="grid two compact">
+        <label>ชื่อ Site<input id="sangforLabel" autocomplete="off"></label>
+        <label>Sangfor URL<input id="sangforUrl" type="url" autocomplete="off"></label>
+      </div>
+      <label>หน้า VM Backup<input id="sangforBackupPath" autocomplete="off"></label>
+      <div class="grid two compact">
+        <label>Username<input id="sangforUsername" autocomplete="username"></label>
+        <label>Password<input id="sangforPassword" type="password" autocomplete="current-password" placeholder="เว้นว่างเพื่อใช้รหัสที่บันทึกไว้"></label>
+      </div>
+      <div class="row between">
+        <div class="row">
+          <label class="check"><input id="sangforEnabled" type="checkbox"> แนบภาพ Sangfor ท้ายรายงาน</label>
+          <label class="check"><input id="sangforVerify" type="checkbox"> ตรวจสอบ SSL Certificate</label>
+        </div>
+        <span id="sangforSaved" class="saved"></span>
+      </div>
+      <div class="button-row">
+        <button id="testSangfor" class="button secondary">ทดสอบ Login และ Capture</button>
+        <a id="sangforPreview" class="button ghost" target="_blank" hidden>เปิดภาพทดสอบ</a>
+      </div>
+      <p class="hint">ระบบจะเปิด Chromium แบบ Headless, Login, เข้าเมนู VM Backup และแนบภาพที่ได้เป็นหน้าสุดท้ายของ PDF</p>
+    </section>
+
+    <section class="card report-card">
+      <div class="card-head">
+        <div>
+          <span class="step">REPORT</span>
+          <h2>สร้างรายงาน</h2>
+        </div>
+        <span id="reportStatus" class="status idle">พร้อมตั้งค่า</span>
+      </div>
+      <div class="tabs" role="tablist" aria-label="รายงาน">
+        <button class="tab-button active" data-tab="create" role="tab" aria-selected="true">สร้างรายงาน</button>
+        <button class="tab-button" data-tab="history" role="tab" aria-selected="false">ประวัติย้อนหลัง 7 วัน</button>
+      </div>
+      <div id="tabCreate" class="tab-panel active" role="tabpanel">
+        <div class="grid two compact">
+          <label>ชื่อ Server ในรายงาน<input id="serverName"></label>
+          <label>จำนวนวันสำหรับแจ้ง Check<input id="alertDays" type="number" min="1" max="30"></label>
+        </div>
+        <p class="hint">ดึงข้อมูล Active Backup และ Cloud Sync ผ่าน Web API โดยตรง พร้อม Capture หน้า VM Backup ของ Sangfor เป็นหลักฐานท้าย PDF</p>
+        <div class="button-row prominent">
+          <button id="saveSettings" class="button secondary">บันทึกการตั้งค่าและรหัสผ่าน</button>
+          <button id="testAll" class="button secondary">ทดสอบ NAS ทั้งสองแห่ง</button>
+          <button id="generateReport" class="button primary">สร้างรายงาน PDF</button>
+        </div>
+      </div>
+      <div id="tabHistory" class="tab-panel" role="tabpanel" hidden>
+        <div class="history-head">
+          <p class="hint">แสดงรายงานที่สร้างด้วยโปรแกรมนี้ภายในวันนี้และย้อนหลังอีก 6 วัน</p>
+          <button id="refreshHistory" class="button secondary">รีเฟรช</button>
+        </div>
+        <div id="historySummary" class="history-summary"></div>
+        <div id="reportHistory" class="reports"><div class="history-empty">กำลังโหลดประวัติ...</div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div><span class="step">API MAPPING</span><h2>ผลการตรวจ Web API</h2></div>
+      </div>
+      <div id="resultPanel" class="result-panel empty">ยังไม่มีผลการทำงาน</div>
+    </section>
+  </main>
+
+  <div id="accountModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-account></div>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+      <div class="card-head">
+        <div>
+          <span class="step">ACCOUNT</span>
+          <h2 id="accountTitle">เปลี่ยนรหัสผ่าน</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-account aria-label="ปิด">&times;</button>
+      </div>
+      <p class="hint">ผู้ใช้: <strong id="accountUsername"></strong></p>
+      <form id="passwordForm">
+        <label>รหัสผ่านปัจจุบัน<input id="currentWebPassword" type="password" autocomplete="current-password" required></label>
+        <label>รหัสผ่านใหม่<input id="newWebPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label>ยืนยันรหัสผ่านใหม่<input id="confirmWebPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <div id="passwordError" class="form-error" aria-live="polite"></div>
+        <div class="button-row prominent">
+          <button class="button secondary" type="button" data-close-account>ยกเลิก</button>
+          <button id="changePasswordButton" class="button primary" type="submit">เปลี่ยนรหัสผ่าน</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

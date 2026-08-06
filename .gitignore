@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-build/
+
+# Runtime state and credentials
+data/
+logs/
+reports/
+captures/
+diagnostics/
+tmp/
+*.env
+settings.json
+web_auth.json
+
+# Build artifacts
+build/
+dist/
+output/
+*.spec
+*.zip
+
+# Generated documents and captures
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.csv
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
