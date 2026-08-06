@@ -180,6 +180,16 @@ async function probe(site) {
   } catch(e) { setStatus(site,"ตรวจ API ไม่สำเร็จ","bad"); result(e.message,false); }
 }
 
+function downloadReport(url, filename) {
+  const link=document.createElement("a");
+  link.href=url;
+  link.download=filename||"backup-report.pdf";
+  link.hidden=true;
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
 async function generateReport() {
   const button=$("generateReport"); button.disabled=true;
   setStatus("report","กำลังดึงข้อมูลจาก NAS","busy");
@@ -187,8 +197,8 @@ async function generateReport() {
   try {
     const response=await api("/api/generate",{method:"POST",body:JSON.stringify(allSettings())});
     setStatus("report","สร้างรายงานสำเร็จ","ok");
-    result(`สร้างรายงานสำเร็จ\nรายการ Active Backup: ${response.rows}\nสถานะ Check: ${response.check_count}\nCloud Sync connections: ${response.cloud_sync.connection_count}\nSangfor capture: ${response.sangfor.enabled?"แนบแล้ว":"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
-    window.open(`${response.url}?token=${encodeURIComponent(token)}`,"_blank");
+    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรายการ Active Backup: ${response.rows}\nสถานะ Check: ${response.check_count}\nCloud Sync connections: ${response.cloud_sync.connection_count}\nSangfor capture: ${response.sangfor.enabled?"แนบแล้ว":"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
+    downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {
     setStatus("report","สร้างรายงานไม่สำเร็จ","bad"); result(e.message,false);

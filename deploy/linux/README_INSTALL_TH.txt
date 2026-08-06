@@ -9,6 +9,7 @@ Version 0.7 adds automatic Sangfor aCloud login and VM Backup screenshot capture
 It uses the existing /usr/bin/chromium-browser and appends the capture to the PDF.
 Version 0.7.1 automatically folds saved source credentials in the team UI.
 Version 0.7.3 adds the Pylon logo and application name to every PDF page header.
+Version 0.7.4 starts the PDF download automatically after report generation.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh
