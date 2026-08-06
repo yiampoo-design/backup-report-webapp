@@ -38,7 +38,11 @@
         </div>
         <label>ชื่อ Site<input id="primaryLabel" autocomplete="off"></label>
         <label>DSM URL<input id="primaryUrl" type="url" autocomplete="off"></label>
-        <div class="grid two compact">
+        <div class="credential-toolbar row between">
+          <span class="hint">บัญชีสำหรับเชื่อมต่อ NAS</span>
+          <button class="button ghost compact-button credential-toggle" data-site="primary" type="button" hidden>แสดง/แก้ไขบัญชี</button>
+        </div>
+        <div id="primaryCredentials" class="grid two compact credential-fields">
           <label>Username<input id="primaryUsername" autocomplete="username"></label>
           <label>Password<input id="primaryPassword" type="password" autocomplete="current-password" placeholder="เว้นว่างเพื่อใช้รหัสที่บันทึกไว้"></label>
         </div>
@@ -62,7 +66,11 @@
         </div>
         <label>ชื่อ Site<input id="remoteLabel" autocomplete="off"></label>
         <label>DSM URL<input id="remoteUrl" type="url" autocomplete="off"></label>
-        <div class="grid two compact">
+        <div class="credential-toolbar row between">
+          <span class="hint">บัญชีสำหรับเชื่อมต่อ NAS</span>
+          <button class="button ghost compact-button credential-toggle" data-site="remote" type="button" hidden>แสดง/แก้ไขบัญชี</button>
+        </div>
+        <div id="remoteCredentials" class="grid two compact credential-fields">
           <label>Username<input id="remoteUsername" autocomplete="username"></label>
           <label>Password<input id="remotePassword" type="password" autocomplete="current-password" placeholder="เว้นว่างเพื่อใช้รหัสที่บันทึกไว้"></label>
         </div>
@@ -90,7 +98,11 @@
         <label>Sangfor URL<input id="sangforUrl" type="url" autocomplete="off"></label>
       </div>
       <label>หน้า VM Backup<input id="sangforBackupPath" autocomplete="off"></label>
-      <div class="grid two compact">
+      <div class="credential-toolbar row between">
+        <span class="hint">บัญชีสำหรับ Login เข้า Sangfor</span>
+        <button class="button ghost compact-button credential-toggle" data-site="sangfor" type="button" hidden>แสดง/แก้ไขบัญชี</button>
+      </div>
+      <div id="sangforCredentials" class="grid two compact credential-fields">
         <label>Username<input id="sangforUsername" autocomplete="username"></label>
         <label>Password<input id="sangforPassword" type="password" autocomplete="current-password" placeholder="เว้นว่างเพื่อใช้รหัสที่บันทึกไว้"></label>
       </div>

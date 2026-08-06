@@ -54,6 +54,8 @@ input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31,111,159,.
 .check { margin: 0; font-weight: 500; }
 .check input { width: auto; margin: 0 7px 0 0; }
 .saved { color: var(--green); font-size: 11px; }
+.credential-toolbar { min-height: 34px; margin: 2px 0 6px; padding: 5px 8px; background: var(--pale); border-radius: 7px; }
+.credential-fields[hidden] { display: none; }
 .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .button-row.prominent { justify-content: flex-end; }
 .button {
@@ -66,6 +68,7 @@ input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31,111,159,.
 .button.primary:hover { background: var(--blue-dark); }
 .button.secondary { color: var(--navy); background: #e8f0f5; }
 .button.ghost { color: var(--blue); background: transparent; border: 1px solid #b8cedb; }
+.button.compact-button { padding: 6px 10px; font-size: 11px; }
 .button.ghost.light { color: white; border-color: rgba(255,255,255,.45); }
 .button.full { width: 100%; }
 .status { padding: 6px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }

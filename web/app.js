@@ -98,6 +98,20 @@ function result(message, ok=true) {
   const node=$("resultPanel"); node.textContent=message; node.className=`result-panel ${ok?"success":"error"}`;
 }
 
+function setCredentialPanel(site, passwordSaved, expanded=false) {
+  const fields=$(`${site}Credentials`);
+  const toggle=document.querySelector(`.credential-toggle[data-site="${site}"]`);
+  fields.hidden=passwordSaved && !expanded;
+  toggle.hidden=!passwordSaved;
+  toggle.dataset.expanded=String(expanded);
+  toggle.textContent=expanded?"ซ่อนบัญชี":"แสดง/แก้ไขบัญชี";
+}
+
+function toggleCredentialPanel(site) {
+  const toggle=document.querySelector(`.credential-toggle[data-site="${site}"]`);
+  setCredentialPanel(site,true,toggle.dataset.expanded!=="true");
+}
+
 async function loadSettings() {
   const {settings:s}=await api("/api/settings");
   $("version").textContent=`v${s.app.version}`;
@@ -105,6 +119,7 @@ async function loadSettings() {
     $(`${site}Label`).value=s[site].label; $(`${site}Url`).value=s[site].url;
     $(`${site}Username`).value=s[site].username; $(`${site}Verify`).checked=s[site].verify_ssl;
     $(`${site}Saved`).textContent=s[site].password_saved?"บันทึกรหัสผ่านแล้ว":"ยังไม่ได้บันทึกรหัสผ่าน";
+    setCredentialPanel(site,s[site].password_saved,false);
   }
   $("sangforEnabled").checked=s.sangfor.enabled;
   $("sangforBackupPath").value=s.sangfor.backup_path;
@@ -118,6 +133,7 @@ async function saveSettings() {
     for (const site of ["primary","remote","sangfor"]) {
       $(`${site}Password`).value="";
       $(`${site}Saved`).textContent=settings[site].password_saved?"บันทึกรหัสผ่านแล้ว":"ยังไม่ได้บันทึกรหัสผ่าน";
+      setCredentialPanel(site,settings[site].password_saved,false);
     }
     toast("บันทึกการตั้งค่าแล้ว");
   } catch(e) { result(e.message,false); } finally { button.disabled=false; }
@@ -227,6 +243,7 @@ function selectTab(name) {
 
 document.querySelectorAll(".test-button").forEach(b=>b.addEventListener("click",()=>testSites([b.dataset.site])));
 document.querySelectorAll(".probe-button").forEach(b=>b.addEventListener("click",()=>probe(b.dataset.site)));
+document.querySelectorAll(".credential-toggle").forEach(b=>b.addEventListener("click",()=>toggleCredentialPanel(b.dataset.site)));
 $("saveSettings").addEventListener("click",saveSettings);
 $("testAll").addEventListener("click",()=>testSites(["primary","remote"]));
 $("generateReport").addEventListener("click",generateReport);
