@@ -57,4 +57,4 @@ python -m venv .venv
 
 ## สถานะ
 
-เวอร์ชันปัจจุบัน: `0.7.2-branding`
+เวอร์ชันปัจจุบัน: `0.7.3-report-header`

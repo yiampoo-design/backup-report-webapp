@@ -29,6 +29,7 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT_DIR = ROOT / "output" / "pdf"
+DEFAULT_LOGO_PATH = ROOT / "web" / "icon.png"
 
 REQUIRED_RESULT_COLUMNS = [
     "No.", "Group", "Backup Task", "Status", "Source", "Start", "End",
@@ -537,6 +538,35 @@ def exception_detail_elements(
     ]
 
 
+def page_header(canvas, logo_path: Path):
+    page_width, page_height = landscape(A4)
+    canvas.saveState()
+    canvas.drawImage(
+        str(logo_path),
+        10 * mm,
+        page_height - 16.5 * mm,
+        width=15 * mm,
+        height=12 * mm,
+        preserveAspectRatio=True,
+        anchor="c",
+        mask="auto",
+    )
+    canvas.setFillColor(NAVY)
+    canvas.setFont("Tahoma-Bold", 11)
+    canvas.drawString(29 * mm, page_height - 9.5 * mm, "Pylon Backup Report")
+    canvas.setFillColor(MUTED)
+    canvas.setFont("Tahoma", 6.5)
+    canvas.drawString(
+        29 * mm,
+        page_height - 14 * mm,
+        "PYLON IT OPERATIONS - Automated Backup Reporting",
+    )
+    canvas.setStrokeColor(BLUE)
+    canvas.setLineWidth(0.8)
+    canvas.line(10 * mm, page_height - 19 * mm, page_width - 10 * mm, page_height - 19 * mm)
+    canvas.restoreState()
+
+
 def page_footer(canvas, doc, server_name: str = "BACKUP-SERVER"):
     canvas.saveState()
     canvas.setStrokeColor(GRID)
@@ -560,6 +590,7 @@ def build_pdf(
     server_name: str = "BACKUP-SERVER",
     history_dir: Path | None = None,
     sangfor_capture_path: Path | None = None,
+    logo_path: Path | None = None,
 ):
     regular_font = os.environ.get("BACKUP_REPORT_FONT_REGULAR", r"C:\Windows\Fonts\tahoma.ttf")
     bold_font = os.environ.get("BACKUP_REPORT_FONT_BOLD", r"C:\Windows\Fonts\tahomabd.ttf")
@@ -567,6 +598,9 @@ def build_pdf(
         raise ValueError("Thai report fonts are missing; check BACKUP_REPORT_FONT_REGULAR and BACKUP_REPORT_FONT_BOLD")
     pdfmetrics.registerFont(TTFont("Tahoma", regular_font))
     pdfmetrics.registerFont(TTFont("Tahoma-Bold", bold_font))
+    report_logo = Path(logo_path) if logo_path is not None else DEFAULT_LOGO_PATH
+    if not report_logo.is_file():
+        raise ValueError(f"Report logo not found: {report_logo}")
     styles = make_styles()
     now = datetime.now(timezone(timedelta(hours=7), "Asia/Bangkok"))
     report_date = audit["report_date"]
@@ -576,10 +610,10 @@ def build_pdf(
         pagesize=landscape(A4),
         leftMargin=10 * mm,
         rightMargin=10 * mm,
-        topMargin=9 * mm,
+        topMargin=25 * mm,
         bottomMargin=14 * mm,
         title=f"Daily Backup Health Report {report_date.isoformat()}",
-        author="Automated Backup Reporting Prototype",
+        author="Pylon Backup Report",
         subject="Active Backup for Business daily status",
     )
 
@@ -669,8 +703,10 @@ def build_pdf(
         capture_path = Path(sangfor_capture_path)
         if not capture_path.is_file():
             raise ValueError(f"Sangfor capture not found: {capture_path}")
-        capture_width = 277 * mm
+        capture_width = 260 * mm
         capture_height = capture_width * 1080 / 1920
+        capture_image = Image(str(capture_path), width=capture_width, height=capture_height)
+        capture_image.hAlign = "CENTER"
         story.extend([
             PageBreak(),
             p("ภาพสถานะการสำรองข้อมูล Sangfor aCloud / Sangfor Backup Evidence", styles["title"]),
@@ -679,12 +715,13 @@ def build_pdf(
                 styles["subtitle"],
             ),
             Spacer(1, 6),
-            Image(str(capture_path), width=capture_width, height=capture_height),
+            capture_image,
         ])
-    def footer(canvas, current_doc):
+    def header_footer(canvas, current_doc):
+        page_header(canvas, report_logo)
         page_footer(canvas, current_doc, server_name=server_name)
 
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
 
 
 def main():
