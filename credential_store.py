@@ -11,7 +11,7 @@ class DATA_BLOB(ctypes.Structure):
 
 
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
-DESCRIPTION = "Backup Report Portable"
+DESCRIPTION = "Pylon Backup Report"
 
 
 def _blob(data: bytes) -> tuple[DATA_BLOB, ctypes.Array]:

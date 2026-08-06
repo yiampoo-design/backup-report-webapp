@@ -1,4 +1,4 @@
-Backup Report Web App for AlmaLinux 8
+Pylon Backup Report for AlmaLinux 8
 
 Version 0.6 adds a Login page, Logout, and Change Password in the Account menu.
 The username and password in backup-report.env create the initial account only.
@@ -8,6 +8,7 @@ After first start, the password is stored as a PBKDF2 hash at:
 Version 0.7 adds automatic Sangfor aCloud login and VM Backup screenshot capture.
 It uses the existing /usr/bin/chromium-browser and appends the capture to the PDF.
 Version 0.7.1 automatically folds saved source credentials in the team UI.
+Version 0.7.2 adds Pylon branding, logo and application name.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh

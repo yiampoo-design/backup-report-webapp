@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import secrets
 import socket
@@ -24,8 +25,8 @@ from sangfor_capture import SangforCaptureError, capture_sangfor
 from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
-APP_NAME = "Backup Report Portable"
-APP_VERSION = "0.7.1-credential-fold"
+APP_NAME = "Pylon Backup Report"
+APP_VERSION = "0.7.2-branding"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -295,7 +296,7 @@ def find_port(start: int = 8765) -> int:
 
 
 class AppHandler(BaseHTTPRequestHandler):
-    server_version = "BackupReportPortable"
+    server_version = "PylonBackupReport"
 
     def log_message(self, fmt, *args):
         return
@@ -387,7 +388,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "version": APP_VERSION})
         if path.startswith("/static/"):
             filename = Path(unquote(path.removeprefix("/static/"))).name
-            mime = "text/css" if filename.endswith(".css") else "application/javascript"
+            mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
             return self._serve_file(STATIC_ROOT / filename, mime)
         if WEB_USERNAME and path == "/login":
             if self._authorized():

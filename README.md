@@ -1,4 +1,4 @@
-# Backup Report Web App
+# Pylon Backup Report
 
 เว็บแอปภายในสำหรับสร้างรายงาน PDF จากระบบสำรองข้อมูลหลายแหล่ง โดยไม่พึ่ง Map Drive, SMB, WebDAV หรือการ Export CSV ด้วยมือ
 
@@ -19,7 +19,7 @@
 Team Browser
     |
     v
-Backup Report Web App (Python, port 8780)
+Pylon Backup Report (Python, port 8780)
     |-- Synology DSM Web API --> Active Backup
     |-- Synology DSM Web API --> Cloud Sync
     |-- Headless Chromium ----> Sangfor aCloud
@@ -57,4 +57,4 @@ python -m venv .venv
 
 ## สถานะ
 
-เวอร์ชันปัจจุบัน: `0.7.1-credential-fold`
+เวอร์ชันปัจจุบัน: `0.7.2-branding`
