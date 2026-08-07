@@ -197,7 +197,7 @@ async function generateReport() {
   try {
     const response=await api("/api/generate",{method:"POST",body:JSON.stringify(allSettings())});
     setStatus("report","สร้างรายงานสำเร็จ","ok");
-    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรายการ Active Backup: ${response.rows}\nสถานะ Check: ${response.check_count}\nCloud Sync connections: ${response.cloud_sync.connection_count}\nSangfor capture: ${response.sangfor.enabled?"แนบแล้ว":"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
+    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรายการ Active Backup: ${response.rows}\nสถานะ Check จาก NAS: ${response.check_count}\nYard/Cloud Sync connections: ${response.cloud_sync.connection_count}\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?"แนบแล้ว":"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
     downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {

@@ -64,7 +64,7 @@
         <div class="card-head">
           <div>
             <span class="step">SITE 02</span>
-            <h2>Cloud Sync</h2>
+            <h2>Yard / Cloud Sync</h2>
           </div>
           <span id="remoteStatus" class="status idle">ยังไม่ทดสอบ</span>
         </div>
@@ -139,9 +139,9 @@
       <div id="tabCreate" class="tab-panel active" role="tabpanel">
         <div class="grid two compact">
           <label>ชื่อ Server ในรายงาน<input id="serverName"></label>
-          <label>จำนวนวันสำหรับแจ้ง Check<input id="alertDays" type="number" min="1" max="30"></label>
+          <label>จำนวนวันประวัติสำหรับเปรียบเทียบ<input id="alertDays" type="number" min="3" max="30"></label>
         </div>
-        <p class="hint">ดึงข้อมูล Active Backup และ Cloud Sync ผ่าน Web API โดยตรง พร้อม Capture หน้า VM Backup ของ Sangfor เป็นหลักฐานท้าย PDF</p>
+        <p class="hint">สถานะ Check อิง Warning, Error หรือสถานะไม่สำเร็จจาก NAS เท่านั้น ส่วนประวัติขนาดข้อมูลใช้ประกอบการตรวจสอบโดยไม่เปลี่ยนสถานะ พร้อมสร้างหน้า Yard/Cloud Sync และแนบภาพ Sangfor</p>
         <div class="button-row prominent">
           <button id="saveSettings" class="button secondary">บันทึกการตั้งค่าและรหัสผ่าน</button>
           <button id="testAll" class="button secondary">ทดสอบ NAS ทั้งสองแห่ง</button>

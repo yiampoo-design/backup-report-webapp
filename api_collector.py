@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -21,7 +22,8 @@ def _duration(start: int, end: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def collect_active_backup(client: SynologyClient, alert_days: int = 3) -> tuple[list[dict[str, str]], dict[str, Any]]:
+def collect_active_backup(client: SynologyClient, alert_days: int = 7) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    alert_days = max(3, min(30, int(alert_days)))
     tasks_data = client.call(
         "SYNO.ActiveBackup.Task", "list",
         {"filter": {"backup_type": 4}, "load_devices": True}, version=1,
@@ -83,21 +85,28 @@ def collect_active_backup(client: SynologyClient, alert_days: int = 3) -> tuple[
                 daily_history[day] = item
         task_history = sorted(daily_history.values(), key=lambda item: int(item.get("time_start", 0)), reverse=True)[:alert_days]
         same_size = sum(1 for item in task_history if result_size(item) == transferred)
-        repeated_size = group == "File Backup" and len(task_history) >= alert_days and same_size >= alert_days
-        audit_status = "Check" if status != "Successful" or warning or error or repeated_size else "OK"
-        note = (f"ขนาดข้อมูลเท่ากัน {same_size} ครั้งในช่วงตรวจ {alert_days} ครั้ง กรุณาตรวจสอบข้อมูลต้นทาง" if repeated_size else
-                "พบ Warning/Error หรือสถานะไม่สำเร็จ กรุณาตรวจสอบรายละเอียดใน Active Backup" if audit_status == "Check" else
-                "ผลสำรองข้อมูลสำเร็จจาก Active Backup API")
+        repeated_size = len(task_history) >= alert_days and same_size >= alert_days
+        audit_status = "Check" if status != "Successful" or warning or error else "OK"
+        note = (
+            "พบ Warning/Error หรือสถานะไม่สำเร็จ กรุณาตรวจสอบรายละเอียดใน Active Backup"
+            if audit_status == "Check"
+            else f"ผลสำรองข้อมูลสำเร็จจาก Active Backup API; ขนาดข้อมูลเท่ากัน {same_size} วันจากช่วงเปรียบเทียบ {alert_days} วัน (ข้อมูลประกอบ)"
+            if repeated_size
+            else "ผลสำรองข้อมูลสำเร็จจาก Active Backup API"
+        )
         history_rows = []
         for hist in sorted(task_history, key=lambda item: int(item.get("time_start", 0))):
             hist_start, hist_end = int(hist.get("time_start", 0)), int(hist.get("time_end", 0))
             hist_status = STATUS.get(int(hist.get("status", 0) or 0), f"Status {hist.get('status', 0)}")
+            hist_warning = int(hist.get("warning_count", 0) or 0)
+            hist_error = int(hist.get("error_count", 0) or 0)
             history_rows.append({
                 "Report Date": _dt(hist_start).date().isoformat(), "Status": hist_status,
                 "Start": _dt(hist_start).strftime("%Y-%m-%d %H:%M:%S"), "End": _dt(hist_end).strftime("%Y-%m-%d %H:%M:%S"),
                 "Duration": _duration(hist_start, hist_end), "Size": format_bytes(str(result_size(hist))),
                 "File Count": str(int(hist.get("success_count", 0) or 0)), "Unchanged": str(int(hist.get("none_count", 0) or 0)),
-                "Audit Same Size": f"{same_size} of {alert_days}", "Audit Status": "Check" if repeated_size else "OK",
+                "Audit Same Size": f"{same_size} of {alert_days}",
+                "Audit Status": "Check" if hist_status != "Successful" or hist_warning or hist_error else "OK",
             })
         row = {
             "No.": str(index), "Group": group, "Backup Task": task_name,
@@ -115,10 +124,86 @@ def collect_active_backup(client: SynologyClient, alert_days: int = 3) -> tuple[
     return rows, {"report_date": latest_date, "row_count": len(rows), "warning_total": warning_total, "error_total": error_total}
 
 
-def collect_cloud_sync(client: SynologyClient) -> dict[str, Any]:
-    data = client.call("SYNO.CloudSync", "list_conn", version=1)
+def _first_value(item: dict[str, Any], *keys: str, default: Any = "-") -> Any:
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, "", []):
+            return value
+    return default
+
+
+def _list_values(data: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("conn", "connections", "connection", "sessions", "session", "items", "logs", "log"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _normalize_cloud_connection(item: dict[str, Any], index: int) -> dict[str, str]:
     return {
-        "connection_count": int(data.get("total", len(data.get("conn", []))) or 0),
-        "paused": bool(data.get("is_pause", False)),
-        "tray_status": str(data.get("tray_status", "unknown")),
+        "name": str(_first_value(item, "display_name", "name", "conn_name", "task_name", default=f"Connection {index}")),
+        "provider": str(_first_value(item, "provider", "cloud_type", "service", "type")),
+        "local_path": str(_first_value(item, "local_path", "sync_folder", "local_folder", "path")),
+        "remote_path": str(_first_value(item, "remote_path", "remote_folder", "cloud_path")),
+        "status": str(_first_value(item, "sync_status", "status", "state", "last_status", default="unknown")),
+    }
+
+
+def _normalize_cloud_log(item: dict[str, Any]) -> dict[str, str]:
+    return {
+        "time": str(_first_value(item, "time", "datetime", "date", "timestamp")),
+        "level": str(_first_value(item, "level", "severity", "priority", "status")),
+        "message": str(_first_value(item, "message", "msg", "description", "event", "log")),
+    }
+
+
+def collect_cloud_sync(client: SynologyClient) -> dict[str, Any]:
+    responses: dict[str, dict[str, Any]] = {}
+    errors: dict[str, str] = {}
+    for method in ("list_conn", "list_session", "get_status"):
+        try:
+            responses[method] = client.call("SYNO.CloudSync", method, version=1)
+        except SynologyApiError as exc:
+            errors[method] = str(exc)
+
+    if not responses:
+        raise SynologyApiError("Cloud Sync API ไม่ตอบกลับ: " + "; ".join(errors.values()))
+
+    raw_connections: list[dict[str, Any]] = []
+    for data in responses.values():
+        raw_connections.extend(_list_values(data))
+    connections: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for index, item in enumerate(raw_connections, 1):
+        normalized = _normalize_cloud_connection(item, index)
+        identity = (normalized["name"], normalized["local_path"], normalized["remote_path"])
+        if identity not in seen:
+            seen.add(identity)
+            connections.append(normalized)
+
+    combined = {key: value for data in responses.values() for key, value in data.items()}
+    logs: list[dict[str, str]] = []
+    try:
+        log_data = client.call("SYNO.LogCenter.Log", "list", {"offset": 0, "limit": 500})
+        for item in _list_values(log_data):
+            searchable = json.dumps(item, ensure_ascii=False).lower()
+            if "cloud sync" in searchable or "cloudsync" in searchable:
+                logs.append(_normalize_cloud_log(item))
+    except SynologyApiError as exc:
+        errors["log_center"] = str(exc)
+
+    reported_total = _first_value(combined, "total", "connection_count", default=len(connections))
+    try:
+        connection_count = max(int(reported_total or 0), len(connections))
+    except (TypeError, ValueError):
+        connection_count = len(connections)
+    return {
+        "connection_count": connection_count,
+        "paused": bool(_first_value(combined, "is_pause", "paused", default=False)),
+        "tray_status": str(_first_value(combined, "tray_status", "sync_status", "status", "state", default="unknown")),
+        "connections": connections,
+        "logs": logs[:50],
+        "api_methods": sorted(responses),
+        "api_errors": errors,
     }

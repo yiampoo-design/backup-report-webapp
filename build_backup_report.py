@@ -382,8 +382,9 @@ def exception_detail_elements(
     styles,
     history_dir: Path | None = None,
 ):
+    history_days = str(row.get("Audit Same Size") or "").split(" of ")[-1] or "7"
     history = row.get("_history") or load_task_history(
-        row["Backup Task"], report_date, days=3, history_dir=history_dir
+        row["Backup Task"], report_date, days=int(history_days or 7), history_dir=history_dir
     )
     status_color = RED if row["Status"] != "Successful" else AMBER
     banner_text = (
@@ -521,7 +522,7 @@ def exception_detail_elements(
         p("ข้อมูลการทำงานล่าสุด / Latest Execution", styles["section"]),
         detail_table,
         Spacer(1, 8),
-        p("ประวัติย้อนหลัง 3 วัน / 3-Day History", styles["section"]),
+        p(f"ประวัติย้อนหลัง {history_days} วัน / {history_days}-Day History", styles["section"]),
         history_table,
         Spacer(1, 8),
         p("ผลการตรวจสอบอัตโนมัติ / Automated Finding", styles["section"]),
@@ -536,6 +537,117 @@ def exception_detail_elements(
             styles["note"],
         ),
     ]
+
+
+def cloud_sync_elements(audit: dict[str, object], styles):
+    cloud = audit.get("cloud_sync") or {}
+    site_label = str(cloud.get("site_label") or "Yard - Cloud Sync")
+    status = str(cloud.get("tray_status") or "unknown")
+    connection_count = int(cloud.get("connection_count") or 0)
+    paused = bool(cloud.get("paused", False))
+    connections = list(cloud.get("connections") or [])
+    logs = list(cloud.get("logs") or [])
+
+    summary = Table(
+        [
+            [p("Site", styles["table_header"]), p(site_label, styles["body"]),
+             p("Cloud Sync status", styles["table_header"]), p(status, styles["body"])],
+            [p("Connections", styles["table_header"]), p(connection_count, styles["body"]),
+             p("Paused", styles["table_header"]), p("Yes" if paused else "No", styles["body"])],
+        ],
+        colWidths=[105, 272, 105, 273],
+        hAlign="LEFT",
+    )
+    summary.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), NAVY),
+        ("BACKGROUND", (2, 0), (2, -1), NAVY),
+        ("GRID", (0, 0), (-1, -1), 0.4, GRID),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements = [
+        p("รายงานไซต์ Yard / Yard Cloud Sync Report", styles["title"]),
+        p(
+            "ข้อมูลจาก Cloud Sync Web API และ Log Center ของ NAS ปลายทางโดยตรง",
+            styles["subtitle"],
+        ),
+        Spacer(1, 7),
+        summary,
+        Spacer(1, 8),
+        p("รายการเชื่อมต่อ / Connections", styles["section"]),
+    ]
+
+    if connections:
+        conn_data = [[p(value, styles["table_header"]) for value in
+                      ("Name", "Provider", "Local path", "Remote path", "Status")]]
+        for item in connections:
+            conn_data.append([
+                p(item.get("name", "-"), styles["small"]),
+                p(item.get("provider", "-"), styles["small_center"]),
+                p(item.get("local_path", "-"), styles["small"]),
+                p(item.get("remote_path", "-"), styles["small"]),
+                p(item.get("status", "unknown"), styles["small_center"]),
+            ])
+        connection_table = Table(conn_data, colWidths=[150, 90, 205, 205, 105], repeatRows=1, hAlign="LEFT")
+        connection_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), BLUE),
+            ("GRID", (0, 0), (-1, -1), 0.35, GRID),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        elements.extend([connection_table, Spacer(1, 8)])
+    else:
+        no_connections = Table(
+            [[p(
+                "Cloud Sync Web API ไม่ส่งรายการ connection กลับมา โปรดตรวจสอบว่า Site นี้มีงาน Cloud Sync ที่เปิดใช้งานและบัญชีรายงานมีสิทธิ์อ่านข้อมูล",
+                styles["body"],
+            )]],
+            colWidths=[755],
+        )
+        no_connections.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), AMBER_BG),
+            ("BOX", (0, 0), (-1, -1), 0.6, AMBER),
+            ("LEFTPADDING", (0, 0), (-1, -1), 7),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.extend([no_connections, Spacer(1, 8)])
+
+    elements.append(p("เหตุการณ์ Cloud Sync ล่าสุด / Recent Cloud Sync Events", styles["section"]))
+    if logs:
+        log_data = [[p(value, styles["table_header"]) for value in ("Time", "Level", "Message")]]
+        for item in logs[:20]:
+            log_data.append([
+                p(item.get("time", "-"), styles["small_center"]),
+                p(item.get("level", "-"), styles["small_center"]),
+                p(item.get("message", "-"), styles["small"]),
+            ])
+        log_table = Table(log_data, colWidths=[120, 80, 555], repeatRows=1, hAlign="LEFT")
+        log_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("GRID", (0, 0), (-1, -1), 0.35, GRID),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(log_table)
+    else:
+        elements.append(p(
+            "ไม่พบเหตุการณ์ Cloud Sync จาก Log Center ที่ Web API ส่งกลับมาในรอบการอ่านครั้งนี้",
+            styles["note"],
+        ))
+    methods = ", ".join(cloud.get("api_methods") or []) or "none"
+    elements.extend([Spacer(1, 6), p(f"Successful API methods: {methods}", styles["note"])])
+    return elements
 
 
 def page_header(canvas, logo_path: Path):
@@ -674,8 +786,8 @@ def build_pdf(
         KeepTogether([
             p("หมายเหตุการตีความ / Interpretation Notes", styles["section"]),
             p(
-                "1. Audit Window compares recent backup results returned directly by the Active Backup Web API; it is not a lifetime consecutive-run count. "
-                "2. A Check result means the task needs review even when the backup status is Successful. "
+                "1. Check is reported only when the Active Backup API returns Warning, Failed, warning_count or error_count. "
+                "2. Same Size and History Window are supporting information and do not change a Successful NAS status to Check. "
                 "3. The PDF generator stops when either NAS API cannot be read or no daily Active Backup results are available.",
                 styles["note"],
             ),
@@ -686,6 +798,8 @@ def build_pdf(
             ),
         ]),
     ])
+    story.append(PageBreak())
+    story.extend(cloud_sync_elements(audit, styles))
     if attention:
         for exception_index, exception_row in enumerate(attention, start=1):
             story.append(PageBreak())

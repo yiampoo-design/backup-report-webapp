@@ -26,7 +26,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.7.4-auto-download"
+APP_VERSION = "0.7.5-yard-status"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -50,7 +50,7 @@ SESSIONS_LOCK = threading.Lock()
 
 
 DEFAULT_SETTINGS = {
-    "version": 1,
+    "version": 2,
     "primary": {
         "label": "NAS เครื่องหลัก - Active Backup",
         "url": "https://nas-primary.example.local:5001",
@@ -60,7 +60,7 @@ DEFAULT_SETTINGS = {
         "profile": "active_backup",
     },
     "remote": {
-        "label": "NAS ปลายทาง - Cloud Sync",
+        "label": "Yard - Cloud Sync",
         "url": "https://nas-secondary.example.local:5001",
         "username": "",
         "password_encrypted": "",
@@ -78,7 +78,7 @@ DEFAULT_SETTINGS = {
     },
     "report": {
         "server_name": "BACKUP-SERVER",
-        "alert_days": 3,
+        "alert_days": 7,
     },
 }
 
@@ -102,6 +102,8 @@ def load_settings() -> dict:
             for key in settings[section]:
                 if key in submitted:
                     settings[section][key] = submitted[key]
+        if int(loaded.get("version", 1) or 1) < 2 and int(settings["report"].get("alert_days", 3) or 3) == 3:
+            settings["report"]["alert_days"] = 7
     return settings
 
 
@@ -250,9 +252,10 @@ def generate_report(payload: dict) -> dict:
     remote = SynologyClient(remote_config["url"], verify_ssl=bool(remote_config.get("verify_ssl", True)), timeout=30)
     try:
         primary.login(primary_config["username"], primary_password)
-        rows, audit = collect_active_backup(primary, int(report_settings.get("alert_days", 3)))
+        rows, audit = collect_active_backup(primary, int(report_settings.get("alert_days", 7)))
         remote.login(remote_config["username"], remote_password)
         audit["cloud_sync"] = collect_cloud_sync(remote)
+        audit["cloud_sync"]["site_label"] = str(remote_config.get("label") or "Yard - Cloud Sync")
     finally:
         primary.logout()
         remote.logout()
