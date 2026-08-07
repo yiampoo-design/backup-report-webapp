@@ -26,7 +26,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.7.6-daily-0900"
+APP_VERSION = "0.7.7-sangfor-sort"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -281,6 +281,7 @@ def generate_report(payload: dict) -> dict:
             sangfor_result["enabled"] = True
         finally:
             sangfor_password = ""
+    audit["sangfor_capture"] = sangfor_result
     output = REPORT_ROOT / f"Backup_Report_{audit['report_date'].isoformat()}_{stamp}.pdf"
     build_pdf(
         output,

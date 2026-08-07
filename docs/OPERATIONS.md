@@ -16,6 +16,10 @@
 - Each configured Active Backup task must have a NAS result inside that window. Missing tasks are shown as `Check`; an older result is retained only in the history table and is never substituted as the current result.
 - The PDF prints the collection timestamp, newest NAS result timestamp, configured task count, in-window result count and missing task count.
 
+## Sangfor capture order
+
+Before every Sangfor test or report capture, the app reads the visible `Latest Backup` timestamps and clicks the column header until the values are newest-to-oldest. Capture stops with an error instead of attaching an unverified order when no backup timestamps are visible or the sort cannot be confirmed.
+
 ## Health checks
 
 ```bash

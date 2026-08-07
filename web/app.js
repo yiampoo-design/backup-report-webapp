@@ -153,7 +153,7 @@ async function testSangfor() {
     setStatus("sangfor","Capture สำเร็จ","ok");
     $("sangforPreview").href=response.preview_url;
     $("sangforPreview").hidden=false;
-    result(`ทดสอบ Sangfor สำเร็จ\nURL: ${response.url}\nภาพ: ${response.path}`);
+    result(`ทดสอบ Sangfor สำเร็จ\nเรียง Latest Backup: ${response.sort_verified?"ล่าสุดไปเก่าสุด":"ยังไม่ยืนยัน"}\nผลล่าสุดแถวแรก: ${response.latest_backup_first||"-"}\nURL: ${response.url}\nภาพ: ${response.path}`);
   } catch(e) {
     setStatus("sangfor","Capture ไม่สำเร็จ","bad");
     result(e.message,false);
@@ -202,7 +202,7 @@ async function generateReport() {
   try {
     const response=await api("/api/generate",{method:"POST",body:JSON.stringify(allSettings())});
     setStatus("report","สร้างรายงานสำเร็จ","ok");
-    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรอบข้อมูลถึง: ${response.data_cutoff}\nผล Active Backup ล่าสุดจาก NAS: ${response.latest_result_time||"ไม่พบในรอบ"}\nสถานะรายงาน: ${response.is_final_window?"รอบ 09:00 สมบูรณ์":"ฉบับก่อน 09:00"}\nรายการ Active Backup: ${response.rows}\nงานไม่มีผลในรอบ: ${response.missing_task_count}\nสถานะ Check จาก NAS: ${response.check_count}\nYard/Cloud Sync connections: ${response.cloud_sync.connection_count}\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?"แนบแล้ว":"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
+    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรอบข้อมูลถึง: ${response.data_cutoff}\nผล Active Backup ล่าสุดจาก NAS: ${response.latest_result_time||"ไม่พบในรอบ"}\nสถานะรายงาน: ${response.is_final_window?"รอบ 09:00 สมบูรณ์":"ฉบับก่อน 09:00"}\nรายการ Active Backup: ${response.rows}\nงานไม่มีผลในรอบ: ${response.missing_task_count}\nสถานะ Check จาก NAS: ${response.check_count}\nYard/Cloud Sync connections: ${response.cloud_sync.connection_count}\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?("แนบแล้ว; Latest Backup "+(response.sangfor.sort_verified?"เรียงล่าสุดไปเก่าสุด":"ยังไม่ยืนยัน")):"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
     downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {

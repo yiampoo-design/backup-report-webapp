@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
 
 DEFAULT_BACKUP_PATH = "/#/mod-setting/vm-backup/index?tab=recover"
+BACKUP_DATETIME_PATTERN = re.compile(r"\b20\d{2}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\b")
 
 
 class SangforCaptureError(RuntimeError):
@@ -17,6 +20,45 @@ def _root_url(value: str) -> str:
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError("Sangfor URL ต้องขึ้นต้นด้วย http:// หรือ https://")
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _parse_backup_datetimes(text: str) -> list[datetime]:
+    return [datetime.strptime(value, "%Y-%m-%d %H:%M:%S") for value in BACKUP_DATETIME_PATTERN.findall(text)]
+
+
+def _is_descending(values: list[datetime]) -> bool:
+    return bool(values) and all(left >= right for left, right in zip(values, values[1:]))
+
+
+def _sort_latest_backup_desc(page) -> dict[str, object]:
+    header = page.get_by_text("Latest Backup", exact=True).last
+    header.wait_for(state="visible", timeout=45_000)
+
+    values: list[datetime] = []
+    for _ in range(15):
+        values = _parse_backup_datetimes(page.locator("body").inner_text())
+        if values:
+            break
+        page.wait_for_timeout(1_000)
+    if not values:
+        raise SangforCaptureError("ไม่พบวันที่ในคอลัมน์ Latest Backup จึงไม่สามารถยืนยันลำดับก่อน Capture")
+
+    clicks = 0
+    while not _is_descending(values) and clicks < 2:
+        header.click(force=True)
+        clicks += 1
+        page.wait_for_timeout(2_000)
+        values = _parse_backup_datetimes(page.locator("body").inner_text())
+
+    if not _is_descending(values):
+        raise SangforCaptureError("ไม่สามารถเรียงคอลัมน์ Latest Backup จากล่าสุดไปเก่าสุดได้")
+    return {
+        "sort_verified": True,
+        "sort_order": "latest_backup_desc",
+        "sort_clicks": clicks,
+        "latest_backup_first": values[0].strftime("%Y-%m-%d %H:%M:%S"),
+        "visible_backup_rows": len(values),
+    }
 
 
 def capture_sangfor(config: dict, password: str, output_path: Path) -> dict:
@@ -85,7 +127,7 @@ def capture_sangfor(config: dict, password: str, output_path: Path) -> dict:
                 raise SangforCaptureError("Sangfor login ไม่สำเร็จ กรุณาตรวจ Username และ Password")
 
             page.get_by_text("VM Name", exact=True).wait_for(state="visible", timeout=45_000)
-            page.get_by_text("Latest Backup", exact=True).wait_for(state="visible", timeout=45_000)
+            sort_result = _sort_latest_backup_desc(page)
             page.screenshot(path=str(output_path), full_page=False, type="png")
             context.close()
             browser.close()
@@ -97,6 +139,7 @@ def capture_sangfor(config: dict, password: str, output_path: Path) -> dict:
                 "url": target_url,
                 "width": 1920,
                 "height": 1080,
+                **sort_result,
             }
     except PlaywrightTimeoutError as exc:
         raise SangforCaptureError("Sangfor โหลดหน้า Backup ไม่เสร็จภายในเวลาที่กำหนด") from exc

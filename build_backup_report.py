@@ -829,6 +829,12 @@ def build_pdf(
         capture_path = Path(sangfor_capture_path)
         if not capture_path.is_file():
             raise ValueError(f"Sangfor capture not found: {capture_path}")
+        sangfor_meta = audit.get("sangfor_capture") or {}
+        sort_text = (
+            f"Latest Backup sorted newest-to-oldest; first visible backup: {sangfor_meta.get('latest_backup_first', '-')}"
+            if sangfor_meta.get("sort_verified")
+            else "Latest Backup order not verified"
+        )
         capture_width = 260 * mm
         capture_height = capture_width * 1080 / 1920
         capture_image = Image(str(capture_path), width=capture_width, height=capture_height)
@@ -837,7 +843,7 @@ def build_pdf(
             PageBreak(),
             p("ภาพสถานะการสำรองข้อมูล Sangfor aCloud / Sangfor Backup Evidence", styles["title"]),
             p(
-                f"Captured automatically from the Sangfor VM Backup console | Generated: {now.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok)",
+                f"Captured automatically from the Sangfor VM Backup console | {sort_text} | Generated: {now.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok)",
                 styles["subtitle"],
             ),
             Spacer(1, 6),
