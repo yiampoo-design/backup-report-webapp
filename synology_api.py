@@ -159,6 +159,66 @@ class SynologyClient:
         self._require_success(payload, f"{api}.{method}")
         return payload.get("data", {})
 
+    def download(
+        self,
+        api: str,
+        method: str,
+        params: dict[str, Any] | None = None,
+        version: int | None = None,
+    ) -> bytes:
+        """Download a binary response from an authenticated DSM Web API."""
+        if not self.sid:
+            raise SynologyApiError("Not logged in")
+        definition = self.api_info.get(api)
+        if not definition:
+            definition = self.discover([api]).get(api)
+        if not definition:
+            raise SynologyApiError(f"API is not available: {api}")
+        request_params: dict[str, Any] = {
+            "api": api,
+            "version": version or definition.max_version,
+            "method": method,
+            "_sid": self.sid,
+        }
+        if self.syno_token:
+            request_params["SynoToken"] = self.syno_token
+        request_params.update(params or {})
+        json_request = definition.request_format.upper() == "JSON"
+        encoded = urllib.parse.urlencode(
+            {
+                key: (
+                    json.dumps(value, ensure_ascii=False)
+                    if json_request and key not in {"api", "version", "method", "_sid", "SynoToken"}
+                    else json.dumps(value, ensure_ascii=False)
+                    if isinstance(value, (dict, list, bool))
+                    else value
+                )
+                for key, value in request_params.items()
+                if value is not None
+            }
+        )
+        url = f"{self.base_url}/webapi/{definition.path.lstrip('/')}?{encoded}"
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(url),
+                context=self._context(),
+                timeout=self.timeout,
+            ) as response:
+                body = response.read()
+                content_type = response.headers.get_content_type()
+        except urllib.error.HTTPError as exc:
+            raise SynologyApiError(f"HTTP {exc.code} from {self.base_url}") from exc
+        except urllib.error.URLError as exc:
+            raise SynologyApiError(f"Cannot connect to {self.base_url}: {exc.reason}") from exc
+        if content_type == "application/json" or body.lstrip().startswith(b'{"success"'):
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise SynologyApiError(f"Invalid download response from {self.base_url}") from exc
+            self._require_success(payload, f"{api}.{method}")
+            raise SynologyApiError(f"{api}.{method}: DSM returned JSON instead of a file")
+        return body
+
     def logout(self) -> None:
         if not self.sid:
             return

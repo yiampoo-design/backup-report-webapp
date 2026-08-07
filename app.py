@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from http.cookies import SimpleCookie
 
 from build_backup_report import build_pdf
-from api_collector import collect_active_backup, collect_drive_sharesync
+from api_collector import collect_active_backup_csv, collect_drive_sharesync
 from credential_store import protect_text, unprotect_text
 from auth_store import AuthStore
 from sangfor_capture import SangforCaptureError, capture_sangfor
@@ -26,7 +26,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.8.0-yard-sharesync"
+APP_VERSION = "0.8.1-nas-csv-source"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -80,6 +80,7 @@ DEFAULT_SETTINGS = {
         "server_name": "BACKUP-SERVER",
         "alert_days": 7,
         "report_hour": 9,
+        "active_backup_csv_path": "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv",
     },
 }
 
@@ -125,7 +126,7 @@ def save_settings(payload: dict) -> dict:
         elif submitted.get("forget_password"):
             current[section]["password_encrypted"] = ""
     submitted_report = payload.get("report", {})
-    for key in ("server_name", "alert_days", "report_hour"):
+    for key in ("server_name", "alert_days", "report_hour", "active_backup_csv_path"):
         if key in submitted_report:
             current["report"][key] = submitted_report[key]
 
@@ -170,7 +171,13 @@ def test_site(section: str, submitted: dict | None = None) -> dict:
         config["url"], verify_ssl=bool(config.get("verify_ssl", True))
     )
     expected = (
-        ["SYNO.ActiveBackup.Task", "SYNO.ActiveBackup.Log", "SYNO.ActiveBackup.Report"]
+        [
+            "SYNO.ActiveBackup.Task",
+            "SYNO.ActiveBackup.Log",
+            "SYNO.ActiveBackup.Report",
+            "SYNO.FileStation.List",
+            "SYNO.FileStation.Download",
+        ]
         if config["profile"] == "active_backup"
         else [
             "SYNO.SynologyDriveShareSync.Connection",
@@ -187,7 +194,21 @@ def test_site(section: str, submitted: dict | None = None) -> dict:
             "available_apis": sorted(discovered),
             "security_warning": config["url"].lower().startswith("http://"),
         }
-        if config["profile"] == "cloud_sync":
+        if config["profile"] == "active_backup":
+            report_settings = load_settings()["report"]
+            rows, audit = collect_active_backup_csv(
+                client,
+                str(report_settings.get("active_backup_csv_path") or "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv"),
+                int(report_settings.get("report_hour", 9)),
+            )
+            result.update({
+                "data_ready": True,
+                "row_count": len(rows),
+                "check_count": sum(row["Audit Status"].casefold() == "check" for row in rows),
+                "latest_result_time": audit["latest_result_time"].isoformat() if audit["latest_result_time"] else None,
+                "source_api": audit["source_api"],
+            })
+        else:
             cloud = collect_drive_sharesync(client)
             result.update({
                 "data_ready": cloud["readiness"] == "ready",
@@ -273,9 +294,9 @@ def generate_report(payload: dict) -> dict:
     remote = SynologyClient(remote_config["url"], verify_ssl=bool(remote_config.get("verify_ssl", True)), timeout=30)
     try:
         primary.login(primary_config["username"], primary_password)
-        rows, audit = collect_active_backup(
+        rows, audit = collect_active_backup_csv(
             primary,
-            int(report_settings.get("alert_days", 7)),
+            str(report_settings.get("active_backup_csv_path") or "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv"),
             int(report_settings.get("report_hour", 9)),
         )
         remote.login(remote_config["username"], remote_password)
@@ -286,8 +307,8 @@ def generate_report(payload: dict) -> dict:
         remote.logout()
         primary_password = remote_password = ""
     audit.update({
-        "result_sha": "direct-api", "raw_sha": "direct-api",
-        "result_path": Path("Active Backup Web API"), "raw_path": Path("Drive ShareSync Web API"),
+        "raw_sha": "direct-api",
+        "raw_path": Path("Drive ShareSync Web API"),
     })
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     sangfor_capture_path = None

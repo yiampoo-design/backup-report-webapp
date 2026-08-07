@@ -1,5 +1,10 @@
 # Pylon Backup Report
 
+Current Linux release: 0.8.1. Active Backup rows are read from the NAS-generated
+`/ABB_Backup/ABB_Report/abb_daily_result_latest.csv` through
+`SYNO.FileStation.Download`; the application does not recalculate the NAS audit
+columns.
+
 เว็บแอปภายในสำหรับสร้างรายงาน PDF จากระบบสำรองข้อมูลหลายแหล่ง โดยไม่พึ่ง Map Drive, SMB, WebDAV หรือการ Export CSV ด้วยมือ
 
 ## ความสามารถ

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import json
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
-from build_backup_report import format_bytes
+from build_backup_report import REQUIRED_RESULT_COLUMNS, format_bytes
 from synology_api import SynologyApiError, SynologyClient
 
 
 STATUS = {2: "Successful", 3: "Warning", 4: "Failed"}
 BANGKOK = timezone(timedelta(hours=7), "Asia/Bangkok")
+DEFAULT_ACTIVE_BACKUP_CSV = "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv"
 
 
 def _dt(epoch: Any) -> datetime:
@@ -30,6 +34,128 @@ def _backup_group(task_name: str) -> str:
     if "SQL" in upper_name or "_DB" in upper_name or "ALFDB" in upper_name:
         return "SQL Backup"
     return "File Backup"
+
+
+def collect_active_backup_csv(
+    client: SynologyClient,
+    csv_path: str = DEFAULT_ACTIVE_BACKUP_CSV,
+    report_hour: int = 9,
+    now: datetime | None = None,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    """Use the NAS-generated daily result CSV as the authoritative ABB report."""
+    report_hour = max(0, min(23, int(report_hour)))
+    collected_at = now or datetime.now(BANGKOK)
+    if collected_at.tzinfo is None:
+        collected_at = collected_at.replace(tzinfo=BANGKOK)
+    else:
+        collected_at = collected_at.astimezone(BANGKOK)
+
+    content = client.download(
+        "SYNO.FileStation.Download",
+        "download",
+        {"path": csv_path, "mode": "download"},
+        version=2,
+    )
+    if not content:
+        raise ValueError(f"ไฟล์รายงานจาก NAS ว่างเปล่า: {csv_path}")
+    text = None
+    for encoding in ("utf-8-sig", "utf-8", "cp874"):
+        try:
+            text = content.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise ValueError(f"ไม่สามารถอ่าน encoding ของไฟล์รายงานจาก NAS: {csv_path}")
+
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    headers = [str(name or "").lstrip("\ufeff").strip() for name in (reader.fieldnames or [])]
+    missing_headers = [name for name in REQUIRED_RESULT_COLUMNS if name not in headers]
+    if missing_headers:
+        raise ValueError(
+            "ไฟล์รายงานจาก NAS ขาดคอลัมน์ที่จำเป็น: " + ", ".join(missing_headers)
+        )
+
+    rows: list[dict[str, str]] = []
+    report_dates = set()
+    latest_result_time: datetime | None = None
+    warning_total = error_total = 0
+    for source_row in reader:
+        if not any(str(value or "").strip() for value in source_row.values()):
+            continue
+        row = {
+            str(key or "").lstrip("\ufeff").strip(): str(value or "").strip()
+            for key, value in source_row.items()
+        }
+        normalized = {name: row.get(name, "") for name in REQUIRED_RESULT_COLUMNS}
+        try:
+            start = datetime.strptime(normalized["Start"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=BANGKOK)
+            end = datetime.strptime(normalized["End"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=BANGKOK)
+        except ValueError as exc:
+            raise ValueError(
+                f"รูปแบบวันเวลาใน CSV ไม่ถูกต้องที่รายการ {normalized.get('No.') or len(rows) + 1}: {exc}"
+            ) from exc
+        report_dates.add(start.date())
+        latest_result_time = max(latest_result_time, end) if latest_result_time else end
+        try:
+            warning_text, error_text = normalized["Warning/Error"].split("/", 1)
+            warning_total += int(warning_text.strip())
+            error_total += int(error_text.strip())
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"ค่า Warning/Error ใน CSV ไม่ถูกต้องที่รายการ {normalized.get('No.') or len(rows) + 1}"
+            )
+        # A Check row gets a one-row evidence table sourced from the same
+        # authoritative CSV; no independently calculated values are mixed in.
+        normalized["_history"] = [{
+            "Report Date": start.date().isoformat(),
+            "Status": normalized["Status"],
+            "Start": normalized["Start"],
+            "End": normalized["End"],
+            "Duration": normalized["Duration"],
+            "Size": normalized["Size"],
+            "File Count": normalized["File Count"],
+            "Unchanged": normalized["Unchanged"],
+            "Audit Same Size": normalized["Audit Same Size"],
+            "Audit Status": normalized["Audit Status"],
+        }]  # type: ignore[assignment]
+        rows.append(normalized)
+
+    if not rows:
+        raise ValueError(f"ไม่พบรายการ Backup ในไฟล์รายงานจาก NAS: {csv_path}")
+    if len(report_dates) != 1:
+        raise ValueError("CSV จาก NAS มีข้อมูลมากกว่าหนึ่งวัน จึงไม่สร้างรายงานเพื่อป้องกันข้อมูลปะปน")
+    report_date = next(iter(report_dates))
+    if report_date != collected_at.date():
+        raise ValueError(
+            f"CSV จาก NAS เป็นข้อมูลวันที่ {report_date:%d/%m/%Y} แต่วันนี้คือ "
+            f"{collected_at:%d/%m/%Y}; กรุณาตรวจสอบ Scheduled Task ที่สร้าง abb_daily_result_latest.csv"
+        )
+
+    scheduled_cutoff = datetime.combine(report_date, time(report_hour, 0), BANGKOK)
+    effective_cutoff = min(collected_at, scheduled_cutoff)
+    window_start = datetime.combine(report_date, time.min, BANGKOK)
+    check_count = sum(1 for row in rows if row["Audit Status"].casefold() == "check")
+    return rows, {
+        "report_date": report_date,
+        "row_count": len(rows),
+        "task_count": len(rows),
+        "result_count": len(rows),
+        "missing_task_count": 0,
+        "missing_tasks": [],
+        "warning_total": warning_total,
+        "error_total": error_total,
+        "window_start": window_start,
+        "scheduled_cutoff": scheduled_cutoff,
+        "data_cutoff": effective_cutoff,
+        "collected_at": collected_at,
+        "latest_result_time": latest_result_time,
+        "is_final_window": collected_at >= scheduled_cutoff,
+        "source_api": f"SYNO.FileStation.Download ({csv_path})",
+        "result_sha": hashlib.sha256(content).hexdigest(),
+        "result_path": csv_path,
+        "check_count": check_count,
+    }
 
 
 def collect_active_backup(

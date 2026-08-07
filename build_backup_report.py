@@ -827,7 +827,7 @@ def build_pdf(
         PageBreak(),
         p("รายละเอียดข้อมูลและการตรวจสอบ / Data Integrity and Audit Details", styles["title"]),
         p(
-            f"Live NAS API snapshot collected at {collected_at.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok). Latest Active Backup result from NAS: {latest_result_time.strftime('%d/%m/%Y %H:%M:%S') if latest_result_time else 'none in window'}. Configured tasks: {audit.get('task_count', audit['row_count'])}; results in report window: {audit.get('result_count', audit['row_count'])}; missing: {audit.get('missing_task_count', 0)}.",
+            f"Authoritative Active Backup CSV downloaded from NAS at {collected_at.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok). Latest result in the NAS CSV: {latest_result_time.strftime('%d/%m/%Y %H:%M:%S') if latest_result_time else 'none'}. Rows: {audit.get('row_count', 0)}; missing: {audit.get('missing_task_count', 0)}.",
             styles["subtitle"],
         ),
         Spacer(1, 7),
@@ -836,9 +836,9 @@ def build_pdf(
         KeepTogether([
             p("หมายเหตุการตีความ / Interpretation Notes", styles["section"]),
             p(
-                "1. Check is reported when the NAS API returns Warning, Failed, warning_count, error_count, or no task result exists inside the daily report window. "
-                "2. Same Size and History Window are supporting information and do not change a Successful NAS status to Check. "
-                "3. Old results are never substituted for a missing result in the current daily window.",
+                "1. Status, Size, File Count, Same Size, Audit Window, Audit Status and Note are copied directly from abb_daily_result_latest.csv generated on the NAS. "
+                "2. The application does not recalculate or override the NAS CSV audit decision. "
+                "3. A stale CSV or a CSV containing mixed report dates is rejected instead of silently generating a misleading report.",
                 styles["note"],
             ),
             Spacer(1, 5),

@@ -14,6 +14,7 @@ Version 0.7.5 aligns Check with NAS status, uses a 7-day comparison window and a
 Version 0.7.6 uses a daily 00:00-09:00 Asia/Bangkok NAS API window, labels pre-09:00 drafts and reports missing current-window tasks without substituting old results.
 Version 0.7.7 verifies that Sangfor Latest Backup is sorted newest-to-oldest before every test and report capture.
 Version 0.8.0 reads Yard status from Synology Drive ShareSync Connection, Session and sync-history APIs, matching DSM's Synced folders page.
+Version 0.8.1 downloads /ABB_Backup/ABB_Report/abb_daily_result_latest.csv through Synology FileStation Web API and uses it as the authoritative Active Backup report source. Same Size, Audit Window and Audit Status are no longer recalculated by the web app.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh
