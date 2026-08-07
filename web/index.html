@@ -148,6 +148,19 @@
           <button id="testAll" class="button secondary">ทดสอบ NAS ทั้งสองแห่ง</button>
           <button id="generateReport" class="button primary">สร้างรายงาน PDF</button>
         </div>
+        <div id="dailySummaryBox" class="daily-summary" hidden>
+          <div class="daily-summary-head">
+            <div>
+              <h3>ข้อความสรุปสำหรับส่งรายงาน</h3>
+              <p class="hint">สร้างจากข้อมูลเดียวกับ PDF สามารถแก้ไขข้อความก่อนคัดลอกได้</p>
+            </div>
+            <div class="button-row">
+              <button id="copyDailySummary" class="button secondary" type="button">คัดลอกข้อความ</button>
+              <a id="downloadDailySummary" class="button ghost" download>ดาวน์โหลดไฟล์ Text</a>
+            </div>
+          </div>
+          <textarea id="dailySummaryText" rows="10" aria-label="ข้อความสรุปสำหรับส่งรายงาน"></textarea>
+        </div>
       </div>
       <div id="tabHistory" class="tab-panel" role="tabpanel" hidden>
         <div class="history-head">

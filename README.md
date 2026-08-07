@@ -1,6 +1,6 @@
 # Pylon Backup Report
 
-Current Linux release: 0.8.5. Active Backup rows are read from the NAS-generated
+Current Linux release: 0.8.6. Active Backup rows are read from the NAS-generated
 `/ABB_Backup/ABB_Report/abb_daily_result_latest.csv` through
 `SYNO.FileStation.Download`; the application does not recalculate the NAS audit
 columns.

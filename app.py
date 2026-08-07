@@ -30,7 +30,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.8.5-conditional-check-pages"
+APP_VERSION = "0.8.6-daily-message"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -316,6 +316,80 @@ def test_sangfor(submitted: dict | None = None) -> dict:
     return result
 
 
+def build_daily_message(rows: list[dict[str, str]], audit: dict, sangfor_result: dict) -> str:
+    report_date = audit["report_date"]
+    buddhist_year = report_date.year + 543
+    date_text = f"{report_date:%d/%m}/{buddhist_year}"
+
+    file_rows = [row for row in rows if str(row.get("Group", "")).casefold() == "file backup"]
+    file_success = sum(1 for row in file_rows if row.get("Status") == "Successful")
+    if file_rows and file_success == len(file_rows):
+        file_status = "All successful"
+    elif file_rows:
+        file_status = f"{file_success}/{len(file_rows)} successful"
+    else:
+        file_status = "ไม่พบรายการ File Backup"
+
+    cloud = audit.get("cloud_sync") or {}
+    connection_count = int(cloud.get("connection_count") or 0)
+    up_to_date_count = int(cloud.get("up_to_date_count") or 0)
+    if connection_count and up_to_date_count == connection_count:
+        yard_status = "All Up-to-Date"
+    elif connection_count:
+        yard_status = f"{up_to_date_count}/{connection_count} Up-to-Date"
+    else:
+        yard_status = "ไม่พบรายการ Synced folders"
+
+    if sangfor_result.get("enabled") and sangfor_result.get("sort_verified"):
+        hci_status = "ตรวจสอบหน้า HCI Backup และเรียง Latest Backup สำเร็จ"
+    elif sangfor_result.get("enabled"):
+        hci_status = "แนบภาพ HCI Backup แล้ว แต่ยังไม่ยืนยันลำดับ Latest Backup"
+    else:
+        hci_status = "ไม่ได้แนบข้อมูล HCI Backup"
+
+    check_rows = [
+        row for row in rows
+        if row.get("Audit Status") == "Check" or row.get("Status") != "Successful"
+    ]
+    lines = [
+        f"Backup daily report วันที่ {date_text}",
+        "รายละเอียดตามลิงค์ครับ",
+        f"Task File Backup:  {file_status}",
+        f"Backup to Cloud (Yard) Status : {yard_status}",
+        f"HCI Backup  : {hci_status}",
+    ]
+    if not check_rows:
+        lines.append("หมายเหตุ : ไม่พบ Task ที่ต้องตรวจสอบ")
+        return "\n".join(lines)
+
+    same_size_days = []
+    for row in check_rows:
+        value = str(row.get("Same Size") or "").strip()
+        if value.isdigit() and int(value) > 0:
+            same_size_days.append(int(value))
+    if same_size_days and len(same_size_days) == len(check_rows) and len(set(same_size_days)) == 1:
+        lines.append(
+            f"หมายเหตุ : มี {len(check_rows)} Task ขนาดไฟล์ Backup เท่าเดิม {same_size_days[0]} วัน"
+        )
+    else:
+        lines.append(f"หมายเหตุ : มี {len(check_rows)} Task ที่ต้องตรวจสอบ")
+
+    for row in check_rows:
+        if row.get("Status") == "Successful" and str(row.get("Size") or "").strip() in {
+            "0 Bytes", "0 KB", "0.00 KB", "0 MB", "0.00 MB",
+        }:
+            finding = "Backup สำเร็จไม่มีไฟล์ใหม่"
+        elif row.get("Status") == "Successful" and row.get("Audit Status") == "Check":
+            finding = "Backup สำเร็จ แต่ขนาดหรือจำนวนไฟล์เท่าเดิมตามเกณฑ์"
+        else:
+            finding = str(row.get("Note") or "โปรดตรวจสอบผลการ Backup")
+        lines.append(
+            f"{row.get('No.', '-')} {row.get('Group', '-')} {row.get('Backup Task', '-')} "
+            f"Backup {row.get('Status', '-')} {finding}"
+        )
+    return "\n".join(lines)
+
+
 def generate_report(payload: dict) -> dict:
     save_settings(payload)
     report_settings = load_settings()["report"]
@@ -365,6 +439,9 @@ def generate_report(payload: dict) -> dict:
         server_name=str(report_settings.get("server_name") or "BACKUP-SERVER"),
         sangfor_capture_path=sangfor_capture_path,
     )
+    daily_summary = build_daily_message(rows, audit, sangfor_result)
+    summary_output = output.with_suffix(".txt")
+    summary_output.write_text(daily_summary + "\n", encoding="utf-8")
     return {
         "ok": True, "name": output.name, "path": str(output),
         "url": f"/api/report/{quote(output.name)}", "rows": len(rows),
@@ -375,6 +452,10 @@ def generate_report(payload: dict) -> dict:
         "is_final_window": audit["is_final_window"],
         "active_backup_cross_check": audit["active_backup_cross_check"],
         "cloud_sync": audit["cloud_sync"], "sangfor": sangfor_result,
+        "daily_summary": daily_summary,
+        "summary_name": summary_output.name,
+        "summary_path": str(summary_output),
+        "summary_url": f"/api/report/{quote(summary_output.name)}",
     }
 
 
@@ -516,7 +597,8 @@ class AppHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/report/"):
             filename = Path(unquote(path.removeprefix("/api/report/"))).name
             download = parse_qs(parsed.query).get("download", [""])[0] == "1"
-            return self._serve_file(REPORT_ROOT / filename, "application/pdf", attachment=download)
+            mime = "text/plain; charset=utf-8" if Path(filename).suffix.casefold() == ".txt" else "application/pdf"
+            return self._serve_file(REPORT_ROOT / filename, mime, attachment=download)
         if path.startswith("/api/capture/"):
             filename = Path(unquote(path.removeprefix("/api/capture/"))).name
             return self._serve_file(CAPTURE_ROOT / filename, "image/png")

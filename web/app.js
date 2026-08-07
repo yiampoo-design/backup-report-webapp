@@ -208,6 +208,27 @@ function downloadReport(url, filename) {
   link.remove();
 }
 
+function showDailySummary(response) {
+  $("dailySummaryText").value=response.daily_summary||"";
+  $("dailySummaryBox").hidden=false;
+  const link=$("downloadDailySummary");
+  link.href=`${response.summary_url}?token=${encodeURIComponent(token)}&download=1`;
+  link.download=response.summary_name||"Backup_Daily_Summary.txt";
+}
+
+async function copyDailySummary() {
+  const field=$("dailySummaryText");
+  try {
+    await navigator.clipboard.writeText(field.value);
+  } catch (_) {
+    field.focus();
+    field.select();
+    document.execCommand("copy");
+    field.setSelectionRange(0,0);
+  }
+  toast("คัดลอกข้อความสรุปแล้ว");
+}
+
 async function generateReport() {
   const button=$("generateReport"); button.disabled=true;
   setStatus("report","กำลังดึงข้อมูลจาก NAS","busy");
@@ -220,6 +241,7 @@ async function generateReport() {
     if (abbCheck && !abbCheck.consistent) {
       result(`สร้าง PDF จาก CSV สำเร็จ แต่ Active Backup API พบความแตกต่าง ${abbCheck.warning_count} รายการ\nCSV ยังคงเป็นข้อมูลหลักและไม่ได้ถูกแก้ทับ\n${(abbCheck.warnings||[]).join("\n")}`,false);
     }
+    showDailySummary(response);
     downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {
@@ -279,6 +301,7 @@ document.querySelectorAll(".credential-toggle").forEach(b=>b.addEventListener("c
 $("saveSettings").addEventListener("click",saveSettings);
 $("testAll").addEventListener("click",()=>testSites(["primary","remote"]));
 $("generateReport").addEventListener("click",generateReport);
+$("copyDailySummary").addEventListener("click",copyDailySummary);
 $("testSangfor").addEventListener("click",testSangfor);
 document.querySelectorAll(".tab-button").forEach(button=>button.addEventListener("click",()=>selectTab(button.dataset.tab)));
 $("refreshHistory").addEventListener("click",loadReportHistory);
