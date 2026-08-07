@@ -18,7 +18,11 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from http.cookies import SimpleCookie
 
 from build_backup_report import build_pdf
-from api_collector import collect_active_backup_csv, collect_drive_sharesync
+from api_collector import (
+    collect_active_backup_csv,
+    collect_drive_sharesync,
+    cross_check_active_backup_api,
+)
 from credential_store import protect_text, unprotect_text
 from auth_store import AuthStore
 from sangfor_capture import SangforCaptureError, capture_sangfor
@@ -26,7 +30,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.8.1-nas-csv-source"
+APP_VERSION = "0.8.2-csv-with-api-cross-check"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -165,6 +169,29 @@ def credentials_for(section: str, submitted: dict | None = None) -> tuple[dict, 
     return merged, password
 
 
+def active_backup_cross_check_or_warning(
+    client: SynologyClient,
+    rows: list[dict[str, str]],
+    report_date,
+) -> dict:
+    try:
+        return cross_check_active_backup_api(client, rows, report_date)
+    except (SynologyApiError, ValueError) as exc:
+        return {
+            "checked": False,
+            "consistent": False,
+            "warning_count": 1,
+            "warnings": [f"Active Backup API cross-check unavailable: {exc}"],
+            "csv_task_count": len(rows),
+            "api_task_count": None,
+            "matched_result_count": 0,
+            "api_result_count_today": None,
+            "latest_api_result_time": None,
+            "comparison_fields": ["Backup Task", "Status", "End"],
+            "authoritative_source": "abb_daily_result_latest.csv",
+        }
+
+
 def test_site(section: str, submitted: dict | None = None) -> dict:
     config, password = credentials_for(section, submitted)
     client = SynologyClient(
@@ -201,12 +228,16 @@ def test_site(section: str, submitted: dict | None = None) -> dict:
                 str(report_settings.get("active_backup_csv_path") or "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv"),
                 int(report_settings.get("report_hour", 9)),
             )
+            cross_check = active_backup_cross_check_or_warning(
+                client, rows, audit["report_date"]
+            )
             result.update({
                 "data_ready": True,
                 "row_count": len(rows),
                 "check_count": sum(row["Audit Status"].casefold() == "check" for row in rows),
                 "latest_result_time": audit["latest_result_time"].isoformat() if audit["latest_result_time"] else None,
                 "source_api": audit["source_api"],
+                "active_backup_cross_check": cross_check,
             })
         else:
             cloud = collect_drive_sharesync(client)
@@ -299,6 +330,9 @@ def generate_report(payload: dict) -> dict:
             str(report_settings.get("active_backup_csv_path") or "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv"),
             int(report_settings.get("report_hour", 9)),
         )
+        audit["active_backup_cross_check"] = active_backup_cross_check_or_warning(
+            primary, rows, audit["report_date"]
+        )
         remote.login(remote_config["username"], remote_password)
         audit["cloud_sync"] = collect_drive_sharesync(remote)
         audit["cloud_sync"]["site_label"] = str(remote_config.get("label") or "Yard - Drive ShareSync")
@@ -339,6 +373,7 @@ def generate_report(payload: dict) -> dict:
         "data_cutoff": audit["data_cutoff"].isoformat(),
         "latest_result_time": audit["latest_result_time"].isoformat() if audit["latest_result_time"] else None,
         "is_final_window": audit["is_final_window"],
+        "active_backup_cross_check": audit["active_backup_cross_check"],
         "cloud_sync": audit["cloud_sync"], "sangfor": sangfor_result,
     }
 

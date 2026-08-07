@@ -4,7 +4,7 @@ import csv
 import hashlib
 import io
 import json
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 from build_backup_report import REQUIRED_RESULT_COLUMNS, format_bytes
@@ -155,6 +155,117 @@ def collect_active_backup_csv(
         "result_sha": hashlib.sha256(content).hexdigest(),
         "result_path": csv_path,
         "check_count": check_count,
+    }
+
+
+def cross_check_active_backup_api(
+    client: SynologyClient,
+    rows: list[dict[str, str]],
+    report_date: date,
+) -> dict[str, Any]:
+    """Compare CSV task identity/status/timing with ABB API without overriding CSV."""
+    tasks_data = client.call(
+        "SYNO.ActiveBackup.Task",
+        "list",
+        {"filter": {}, "load_devices": True},
+        version=1,
+    )
+    api_tasks = list(tasks_data.get("tasks") or [])
+    history_data = client.call(
+        "SYNO.ActiveBackup.Log",
+        "list_result",
+        {
+            "filter": {},
+            "offset": 0,
+            "limit": 10000,
+            "order_by": "time_start",
+            "direction": "DESC",
+        },
+        version=1,
+    )
+    history = list(history_data.get("results") or [])
+
+    def normalized_name(value: Any) -> str:
+        return " ".join(str(value or "").split()).casefold()
+
+    task_by_name: dict[str, dict[str, Any]] = {}
+    task_by_id: dict[int, dict[str, Any]] = {}
+    for task in api_tasks:
+        task_id = int(task.get("task_id", -1))
+        task_by_id[task_id] = task
+        task_by_name[normalized_name(task.get("task_name"))] = task
+
+    latest_today: dict[int, dict[str, Any]] = {}
+    for result in history:
+        task_id = int(result.get("task_id", -1))
+        completed = _dt(result.get("time_end") or result.get("time_start"))
+        if completed.date() != report_date or task_id not in task_by_id:
+            continue
+        existing = latest_today.get(task_id)
+        if existing is None or int(result.get("time_start", 0) or 0) > int(existing.get("time_start", 0) or 0):
+            latest_today[task_id] = result
+
+    warnings: list[str] = []
+    matched = 0
+    csv_names = {normalized_name(row.get("Backup Task")) for row in rows}
+    for row in rows:
+        csv_name = str(row.get("Backup Task") or "-")
+        task = task_by_name.get(normalized_name(csv_name))
+        if not task:
+            warnings.append(f"CSV task not found in Active Backup API: {csv_name}")
+            continue
+        result = latest_today.get(int(task.get("task_id", -1)))
+        if not result:
+            warnings.append(f"No Active Backup API result today for CSV task: {csv_name}")
+            continue
+        matched += 1
+        api_status = STATUS.get(
+            int(result.get("status", 0) or 0),
+            f"Status {result.get('status', 0)}",
+        )
+        csv_status = str(row.get("Status") or "")
+        if api_status.casefold() != csv_status.casefold():
+            warnings.append(
+                f"Status differs for {csv_name}: CSV={csv_status}; API={api_status}"
+            )
+        try:
+            csv_end = datetime.strptime(
+                str(row.get("End") or ""), "%Y-%m-%d %H:%M:%S"
+            ).replace(tzinfo=BANGKOK)
+            api_end = _dt(result.get("time_end") or result.get("time_start"))
+            if abs((api_end - csv_end).total_seconds()) > 300:
+                warnings.append(
+                    f"Latest result time differs for {csv_name}: "
+                    f"CSV={csv_end:%Y-%m-%d %H:%M:%S}; API={api_end:%Y-%m-%d %H:%M:%S}"
+                )
+        except ValueError:
+            warnings.append(f"Cannot compare result time for {csv_name}")
+
+    extra_api_tasks = [
+        str(task.get("task_name") or task.get("task_id"))
+        for task in api_tasks
+        if normalized_name(task.get("task_name")) not in csv_names
+    ]
+    if extra_api_tasks:
+        warnings.append(
+            "Active Backup API tasks absent from CSV: " + ", ".join(sorted(extra_api_tasks))
+        )
+    latest_api_result_time = max(
+        (_dt(item.get("time_end") or item.get("time_start")) for item in latest_today.values()),
+        default=None,
+    )
+    return {
+        "checked": True,
+        "consistent": not warnings,
+        "warning_count": len(warnings),
+        "warnings": warnings,
+        "csv_task_count": len(rows),
+        "api_task_count": len(api_tasks),
+        "matched_result_count": matched,
+        "api_result_count_today": len(latest_today),
+        "latest_api_result_time": latest_api_result_time,
+        "comparison_fields": ["Backup Task", "Status", "End"],
+        "authoritative_source": "abb_daily_result_latest.csv",
     }
 
 

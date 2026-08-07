@@ -300,6 +300,55 @@ def status_row_background(row: dict[str, str]):
     return colors.white
 
 
+def active_backup_cross_check_banner(audit: dict[str, object], styles):
+    check = audit.get("active_backup_cross_check") or {}
+    if not check or not check.get("checked"):
+        message = "Active Backup API cross-check was not performed. CSV remains the authoritative report source."
+        background, border = AMBER_BG, AMBER
+    elif check.get("consistent"):
+        message = (
+            "Active Backup API cross-check: MATCHED | "
+            f"CSV tasks: {check.get('csv_task_count', 0)} | "
+            f"API tasks: {check.get('api_task_count', 0)} | "
+            f"Matched results: {check.get('matched_result_count', 0)}"
+        )
+        background, border = GREEN_BG, GREEN
+    else:
+        message = (
+            "Active Backup API cross-check: WARNING | "
+            f"Differences: {check.get('warning_count', 0)} | "
+            "CSV remains authoritative and was not overwritten."
+        )
+        background, border = AMBER_BG, AMBER
+    banner = Table([[p(message, styles["note"]) ]], colWidths=[755])
+    banner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), background),
+        ("BOX", (0, 0), (-1, -1), 0.7, border),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return banner
+
+
+def active_backup_cross_check_details(audit: dict[str, object], styles):
+    check = audit.get("active_backup_cross_check") or {}
+    warnings = list(check.get("warnings") or [])
+    if not warnings:
+        return p(
+            "Cross-check fields: Backup Task, Status and End time. No differences found.",
+            styles["note"],
+        )
+    visible = warnings[:8]
+    remainder = len(warnings) - len(visible)
+    suffix = f" | ... and {remainder} more (see web result)" if remainder else ""
+    return p(
+        "Cross-check details: " + " | ".join(str(item) for item in visible) + suffix,
+        styles["note"],
+    )
+
+
 def overview_table(rows: list[dict[str, str]], styles):
     headers = ["No.", "Group", "Backup Task", "Status", "Source", "Start", "End", "Duration", "Size", "Audit"]
     data = [[p(h, styles["table_header"]) for h in headers]]
@@ -831,6 +880,10 @@ def build_pdf(
             styles["subtitle"],
         ),
         Spacer(1, 7),
+        active_backup_cross_check_banner(audit, styles),
+        Spacer(1, 7),
+        active_backup_cross_check_details(audit, styles),
+        Spacer(1, 6),
         audit_table(rows, styles),
         Spacer(1, 8),
         KeepTogether([

@@ -176,12 +176,14 @@ async function testSites(sites) {
             ? "ShareSync - งานถูกพัก"
             : "ShareSync - ต้องตรวจสอบ";
         setStatus(site,warningText,"warn");
+      } else if (site === "primary" && item.active_backup_cross_check && !item.active_backup_cross_check.consistent) {
+        setStatus(site,`CSV พร้อมใช้ / API ต่าง ${item.active_backup_cross_check.warning_count} รายการ`,"warn");
       } else {
-        setStatus(site,site === "remote"?`ShareSync ${item.up_to_date_count}/${item.connection_count} Up to date`:"เชื่อมต่อและอ่านข้อมูลสำเร็จ","ok");
+        setStatus(site,site === "remote"?`ShareSync ${item.up_to_date_count}/${item.connection_count} Up to date`:`NAS CSV ${item.row_count} rows / API ตรงกัน`,"ok");
       }
     }
     const lines=Object.entries(response.results).map(([site,item])=>item.ok
-      ? `${item.label}: OK\nAPI: ${item.available_apis.join(", ")}${site === "remote"?`\nDrive ShareSync folders: ${item.connection_count}\nUp to date: ${item.up_to_date_count}\nOverall status: ${item.tray_status}${item.data_ready?"":"\nคำเตือน: มีรายการ Drive ShareSync ที่ต้องตรวจสอบ"}`:""}${item.security_warning?"\nคำเตือน: URL ยังเป็น HTTP":""}`
+      ? `${item.label}: OK\nAPI: ${item.available_apis.join(", ")}${site === "remote"?`\nDrive ShareSync folders: ${item.connection_count}\nUp to date: ${item.up_to_date_count}\nOverall status: ${item.tray_status}${item.data_ready?"":"\nคำเตือน: มีรายการ Drive ShareSync ที่ต้องตรวจสอบ"}`:`\nNAS CSV rows: ${item.row_count}\nCheck from CSV: ${item.check_count}\nAPI cross-check: ${item.active_backup_cross_check.consistent?"MATCHED":`WARNING ${item.active_backup_cross_check.warning_count}`}\n${(item.active_backup_cross_check.warnings||[]).join("\n")}`}${item.security_warning?"\nคำเตือน: URL ยังเป็น HTTP":""}`
       : `${site}: ${item.error}`);
     result(lines.join("\n\n"),response.ok);
   } catch(e) { sites.forEach(s=>setStatus(s,"เชื่อมต่อไม่สำเร็จ","bad")); result(e.message,false); }
@@ -214,6 +216,10 @@ async function generateReport() {
     const response=await api("/api/generate",{method:"POST",body:JSON.stringify(allSettings())});
     setStatus("report","สร้างรายงานสำเร็จ","ok");
     result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรอบข้อมูลถึง: ${response.data_cutoff}\nผล Active Backup ล่าสุดจาก NAS: ${response.latest_result_time||"ไม่พบในรอบ"}\nสถานะรายงาน: ${response.is_final_window?"รอบ 09:00 สมบูรณ์":"ฉบับก่อน 09:00"}\nรายการ Active Backup: ${response.rows}\nงานไม่มีผลในรอบ: ${response.missing_task_count}\nสถานะ Check จาก NAS: ${response.check_count}\nYard Drive ShareSync: ${response.cloud_sync.up_to_date_count}/${response.cloud_sync.connection_count} Up to date\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?("แนบแล้ว; Latest Backup "+(response.sangfor.sort_verified?"เรียงล่าสุดไปเก่าสุด":"ยังไม่ยืนยัน")):"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
+    const abbCheck=response.active_backup_cross_check;
+    if (abbCheck && !abbCheck.consistent) {
+      result(`สร้าง PDF จาก CSV สำเร็จ แต่ Active Backup API พบความแตกต่าง ${abbCheck.warning_count} รายการ\nCSV ยังคงเป็นข้อมูลหลักและไม่ได้ถูกแก้ทับ\n${(abbCheck.warnings||[]).join("\n")}`,false);
+    }
     downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {
