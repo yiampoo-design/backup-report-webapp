@@ -99,12 +99,17 @@ input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31,111,159,.
 .result-panel.success { color: #0d6638; background: var(--green-bg); }
 .result-panel.error { color: var(--red); background: var(--red-bg); }
 .reports { display: grid; gap: 8px; margin-top: 12px; }
-.report-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; }
+.report-item { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 7px; }
+.report-item-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .report-meta { min-width: 0; }
 .report-name { overflow-wrap: anywhere; color: var(--navy); font-weight: 700; }
 .report-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .report-item a { color: var(--blue); font-weight: 700; text-decoration: none; }
 .report-item small { color: var(--muted); }
+.report-status-summary { padding: 12px; border-left: 4px solid var(--blue); border-radius: 6px; background: var(--pale); }
+.report-status-summary.unavailable { border-left-color: var(--muted); }
+.report-status-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--navy); }
+.report-status-summary pre { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--navy); font: 13px/1.65 "Tahoma", sans-serif; }
 .toast { position: fixed; right: 22px; bottom: 22px; max-width: 460px; padding: 13px 16px; border-radius: 8px; color: white; background: var(--navy); opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }
 .toast.show { opacity: 1; transform: translateY(0); }
 .modal[hidden] { display: none; }
@@ -126,5 +131,6 @@ input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31,111,159,.
   .grid.two, .grid.three { grid-template-columns: 1fr; }
   .topbar { align-items: flex-start; flex-direction: column; }
   .daily-summary-head { align-items: flex-start; flex-direction: column; }
+  .report-item-head, .report-status-head { align-items: flex-start; flex-direction: column; }
   main { margin-top: 18px; }
 }

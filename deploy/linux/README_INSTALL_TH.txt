@@ -20,6 +20,7 @@ Version 0.8.3 serializes the Active Backup API cross-check timestamp before retu
 Version 0.8.4 places each Active Backup Check detail page before Yard and renders Yard Synced folders beside an equal number of newest Sync log events on one page.
 Version 0.8.5 removes the repetitive Data Integrity page. Check detail pages are inserted only when Check items exist, before Yard and Sangfor; source and API cross-check status remain in the first-page subtitle.
 Version 0.8.6 creates an editable daily message beside the PDF, adds one-click Copy in the web UI and saves the same message as a UTF-8 text file.
+Version 0.8.7 displays each daily message inside the 7-day report history with a Copy button, so the team can review and reuse past status summaries without locating text files.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh

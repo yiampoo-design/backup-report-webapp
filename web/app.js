@@ -216,17 +216,29 @@ function showDailySummary(response) {
   link.download=response.summary_name||"Backup_Daily_Summary.txt";
 }
 
-async function copyDailySummary() {
-  const field=$("dailySummaryText");
+async function copyText(text, selectionField=null) {
   try {
-    await navigator.clipboard.writeText(field.value);
+    await navigator.clipboard.writeText(text);
   } catch (_) {
+    const field=selectionField||document.createElement("textarea");
+    if (!selectionField) {
+      field.value=text;
+      field.style.position="fixed";
+      field.style.opacity="0";
+      document.body.append(field);
+    }
     field.focus();
     field.select();
     document.execCommand("copy");
-    field.setSelectionRange(0,0);
+    if (selectionField) field.setSelectionRange(0,0);
+    else field.remove();
   }
   toast("คัดลอกข้อความสรุปแล้ว");
+}
+
+async function copyDailySummary() {
+  const field=$("dailySummaryText");
+  await copyText(field.value,field);
 }
 
 async function generateReport() {
@@ -268,6 +280,7 @@ async function loadReportHistory() {
     }
     for (const report of response.reports) {
       const item=document.createElement("div"); item.className="report-item";
+      const itemHead=document.createElement("div"); itemHead.className="report-item-head";
       const meta=document.createElement("div"); meta.className="report-meta";
       const name=document.createElement("div"); name.className="report-name"; name.textContent=report.name;
       const detail=document.createElement("small");
@@ -278,7 +291,25 @@ async function loadReportHistory() {
       open.href=`/api/report/${encodeURIComponent(report.name)}?token=${encodeURIComponent(token)}`;
       const download=document.createElement("a"); download.className="button ghost"; download.textContent="ดาวน์โหลด";
       download.href=`/api/report/${encodeURIComponent(report.name)}?token=${encodeURIComponent(token)}&download=1`;
-      actions.append(open,download); item.append(meta,actions); list.append(item);
+      actions.append(open,download); itemHead.append(meta,actions);
+
+      const summary=document.createElement("div"); summary.className="report-status-summary";
+      const summaryHead=document.createElement("div"); summaryHead.className="report-status-head";
+      const summaryTitle=document.createElement("strong"); summaryTitle.textContent="สรุปสถานะการออกรายงาน";
+      summaryHead.append(summaryTitle);
+      const summaryText=document.createElement("pre");
+      if (report.summary_available) {
+        summaryText.textContent=report.summary;
+        const copy=document.createElement("button"); copy.type="button"; copy.className="button secondary compact-button";
+        copy.textContent="คัดลอกข้อความ";
+        copy.addEventListener("click",()=>copyText(report.summary));
+        summaryHead.append(copy);
+      } else {
+        summary.classList.add("unavailable");
+        summaryText.textContent="รายงานนี้ยังไม่มีข้อความสรุป เนื่องจากสร้างก่อนระบบสรุปรายวันรุ่น v0.8.6";
+      }
+      summary.append(summaryHead,summaryText);
+      item.append(itemHead,summary); list.append(item);
     }
   } catch(e) {
     $("historySummary").textContent="";

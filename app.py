@@ -30,7 +30,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.8.6-daily-message"
+APP_VERSION = "0.8.7-history-summary"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -390,6 +390,24 @@ def build_daily_message(rows: list[dict[str, str]], audit: dict, sangfor_result:
     return "\n".join(lines)
 
 
+def list_recent_reports(report_root: Path, days: int = 7) -> list[dict[str, object]]:
+    cutoff_date = (datetime.now() - timedelta(days=days - 1)).date()
+    reports = []
+    for item in sorted(report_root.glob("*.pdf"), reverse=True):
+        modified = datetime.fromtimestamp(item.stat().st_mtime)
+        if modified.date() < cutoff_date:
+            continue
+        summary_path = item.with_suffix(".txt")
+        reports.append({
+            "name": item.name,
+            "size": item.stat().st_size,
+            "modified": modified.isoformat(),
+            "summary_available": summary_path.is_file(),
+            "summary": summary_path.read_text(encoding="utf-8").strip() if summary_path.is_file() else "",
+        })
+    return reports
+
+
 def generate_report(payload: dict) -> dict:
     save_settings(payload)
     report_settings = load_settings()["report"]
@@ -583,16 +601,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             return self._json({"ok": True, "settings": public_settings(load_settings())})
         if path == "/api/reports":
-            cutoff_date = (datetime.now() - timedelta(days=6)).date()
-            reports = [
-                {
-                    "name": item.name,
-                    "size": item.stat().st_size,
-                    "modified": datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
-                }
-                for item in sorted(REPORT_ROOT.glob("*.pdf"), reverse=True)
-                if datetime.fromtimestamp(item.stat().st_mtime).date() >= cutoff_date
-            ]
+            reports = list_recent_reports(REPORT_ROOT, days=7)
             return self._json({"ok": True, "days": 7, "reports": reports})
         if path.startswith("/api/report/"):
             filename = Path(unquote(path.removeprefix("/api/report/"))).name
