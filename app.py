@@ -30,7 +30,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.8.7-history-summary"
+APP_VERSION = "0.8.8-summary-wording"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -341,7 +341,7 @@ def build_daily_message(rows: list[dict[str, str]], audit: dict, sangfor_result:
         yard_status = "ไม่พบรายการ Synced folders"
 
     if sangfor_result.get("enabled") and sangfor_result.get("sort_verified"):
-        hci_status = "ตรวจสอบหน้า HCI Backup และเรียง Latest Backup สำเร็จ"
+        hci_status = "ตรวจสอบหน้า HCI Backup สำเร็จ"
     elif sangfor_result.get("enabled"):
         hci_status = "แนบภาพ HCI Backup แล้ว แต่ยังไม่ยืนยันลำดับ Latest Backup"
     else:
