@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
 from build_backup_report import format_bytes
@@ -9,10 +9,11 @@ from synology_api import SynologyApiError, SynologyClient
 
 
 STATUS = {2: "Successful", 3: "Warning", 4: "Failed"}
+BANGKOK = timezone(timedelta(hours=7), "Asia/Bangkok")
 
 
 def _dt(epoch: Any) -> datetime:
-    return datetime.fromtimestamp(int(epoch or 0))
+    return datetime.fromtimestamp(int(epoch or 0), BANGKOK)
 
 
 def _duration(start: int, end: int) -> str:
@@ -22,13 +23,31 @@ def _duration(start: int, end: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def collect_active_backup(client: SynologyClient, alert_days: int = 7) -> tuple[list[dict[str, str]], dict[str, Any]]:
+def collect_active_backup(
+    client: SynologyClient,
+    alert_days: int = 7,
+    report_hour: int = 9,
+    now: datetime | None = None,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
     alert_days = max(3, min(30, int(alert_days)))
+    report_hour = max(0, min(23, int(report_hour)))
+    collected_at = now or datetime.now(BANGKOK)
+    if collected_at.tzinfo is None:
+        collected_at = collected_at.replace(tzinfo=BANGKOK)
+    else:
+        collected_at = collected_at.astimezone(BANGKOK)
+    report_date = collected_at.date()
+    scheduled_cutoff = datetime.combine(report_date, time(report_hour, 0), BANGKOK)
+    effective_cutoff = min(collected_at, scheduled_cutoff)
+    window_start = datetime.combine(report_date, time.min, BANGKOK)
+    is_final_window = collected_at >= scheduled_cutoff
     tasks_data = client.call(
         "SYNO.ActiveBackup.Task", "list",
         {"filter": {"backup_type": 4}, "load_devices": True}, version=1,
     )
     tasks = {int(item["task_id"]): item for item in tasks_data.get("tasks", [])}
+    if not tasks:
+        raise ValueError("Active Backup API ไม่พบ Backup Task ที่กำหนดค่าไว้")
     history = client.call(
         "SYNO.ActiveBackup.Log", "list_result",
         {"filter": {"backup_type": 4}, "offset": 0, "limit": 10000,
@@ -36,8 +55,15 @@ def collect_active_backup(client: SynologyClient, alert_days: int = 7) -> tuple[
     ).get("results", [])
     if not history:
         raise ValueError("Active Backup API ไม่พบประวัติการสำรองข้อมูล")
-    latest_date = max(_dt(item.get("time_start")).date() for item in history)
-    current = [item for item in history if _dt(item.get("time_start")).date() == latest_date and int(item.get("task_id", -1)) in tasks]
+
+    def completed_at(item: dict[str, Any]) -> datetime:
+        return _dt(item.get("time_end") or item.get("time_start"))
+
+    current = [
+        item for item in history
+        if window_start <= completed_at(item) <= effective_cutoff
+        and int(item.get("task_id", -1)) in tasks
+    ]
     latest_by_task: dict[int, dict[str, Any]] = {}
     for item in current:
         task_id = int(item["task_id"])
@@ -119,9 +145,65 @@ def collect_active_backup(client: SynologyClient, alert_days: int = 7) -> tuple[
         }
         row["_history"] = history_rows  # type: ignore[assignment]
         rows.append(row)
-    if not rows:
-        raise ValueError(f"ไม่พบผล Active Backup ประจำวันที่ {latest_date:%d/%m/%Y}")
-    return rows, {"report_date": latest_date, "row_count": len(rows), "warning_total": warning_total, "error_total": error_total}
+
+    missing_task_ids = sorted(set(tasks) - set(latest_by_task))
+    for task_id in missing_task_ids:
+        task = tasks[task_id]
+        task_name = str(task.get("task_name") or task_id)
+        upper_name = task_name.upper()
+        group = "SQL Backup" if ("SQL" in upper_name or "_DB" in upper_name or "ALFDB" in upper_name) else "File Backup"
+        devices = task.get("devices") or []
+        source = "-"
+        if devices:
+            source = str(devices[0].get("host_name") or devices[0].get("host_ip") or "-")
+        task_history = sorted(
+            (item for item in history if int(item.get("task_id", -1)) == task_id),
+            key=lambda item: int(item.get("time_start", 0)),
+            reverse=True,
+        )[:alert_days]
+        history_rows = []
+        for hist in sorted(task_history, key=lambda item: int(item.get("time_start", 0))):
+            hist_start, hist_end = int(hist.get("time_start", 0)), int(hist.get("time_end", 0))
+            hist_status = STATUS.get(int(hist.get("status", 0) or 0), f"Status {hist.get('status', 0)}")
+            hist_warning = int(hist.get("warning_count", 0) or 0)
+            hist_error = int(hist.get("error_count", 0) or 0)
+            history_rows.append({
+                "Report Date": _dt(hist_start).date().isoformat(), "Status": hist_status,
+                "Start": _dt(hist_start).strftime("%Y-%m-%d %H:%M:%S"), "End": _dt(hist_end).strftime("%Y-%m-%d %H:%M:%S"),
+                "Duration": _duration(hist_start, hist_end), "Size": format_bytes(str(result_size(hist))),
+                "File Count": str(int(hist.get("success_count", 0) or 0)), "Unchanged": str(int(hist.get("none_count", 0) or 0)),
+                "Audit Same Size": f"- of {alert_days}",
+                "Audit Status": "Check" if hist_status != "Successful" or hist_warning or hist_error else "OK",
+            })
+        rows.append({
+            "No.": str(len(rows) + 1), "Group": group, "Backup Task": task_name,
+            "Status": f"No result by {effective_cutoff:%H:%M}", "Source": source,
+            "Start": "", "End": "", "Duration": "-", "Size": "-",
+            "File Count": "-", "Warning/Error": "0 / 0", "Unchanged": "-",
+            "Same Size": "-", "Audit Same Size": f"- of {alert_days}",
+            "Audit Status": "Check",
+            "Note": f"NAS API ไม่พบผลสำรองข้อมูลของงานนี้ในรอบ {window_start:%H:%M}-{effective_cutoff:%H:%M} วันที่ {report_date:%d/%m/%Y}",
+            "_history": history_rows,
+        })
+
+    latest_result_time = max((completed_at(item) for item in current), default=None)
+    return rows, {
+        "report_date": report_date,
+        "row_count": len(rows),
+        "task_count": len(tasks),
+        "result_count": len(latest_by_task),
+        "missing_task_count": len(missing_task_ids),
+        "missing_tasks": [str(tasks[task_id].get("task_name") or task_id) for task_id in missing_task_ids],
+        "warning_total": warning_total,
+        "error_total": error_total,
+        "window_start": window_start,
+        "scheduled_cutoff": scheduled_cutoff,
+        "data_cutoff": effective_cutoff,
+        "collected_at": collected_at,
+        "latest_result_time": latest_result_time,
+        "is_final_window": is_final_window,
+        "source_api": "SYNO.ActiveBackup.Task + SYNO.ActiveBackup.Log + SYNO.ActiveBackup.Overview",
+    }
 
 
 def _first_value(item: dict[str, Any], *keys: str, default: Any = "-") -> Any:

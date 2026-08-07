@@ -168,6 +168,8 @@ def p(value: object, style: ParagraphStyle) -> Paragraph:
 
 
 def short_dt(value: str) -> str:
+    if not value:
+        return "-"
     dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
     return dt.strftime("%d/%m/%Y %H:%M")
 
@@ -716,6 +718,16 @@ def build_pdf(
     styles = make_styles()
     now = datetime.now(timezone(timedelta(hours=7), "Asia/Bangkok"))
     report_date = audit["report_date"]
+    window_start = audit.get("window_start")
+    data_cutoff = audit.get("data_cutoff")
+    collected_at = audit.get("collected_at") or now
+    latest_result_time = audit.get("latest_result_time")
+    is_final_window = bool(audit.get("is_final_window", True))
+    period_text = (
+        f"{window_start.strftime('%d/%m/%Y %H:%M')} - {data_cutoff.strftime('%d/%m/%Y %H:%M')}"
+        if window_start and data_cutoff else report_date.strftime("%d/%m/%Y")
+    )
+    report_state = "Final 09:00 cycle" if is_final_window else "Pre-09:00 draft"
 
     doc = SimpleDocTemplate(
         str(output_path),
@@ -732,7 +744,7 @@ def build_pdf(
     story = [
         p("รายงานสถานะการสำรองข้อมูลประจำวัน", styles["title"]),
         p(
-            f"Daily Backup Health Report | Server: {server_name} | Data date: {report_date.strftime('%d/%m/%Y')} | Generated: {now.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok)",
+            f"Daily Backup Health Report | Server: {server_name} | NAS period: {period_text} | {report_state} | Generated: {now.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok)",
             styles["subtitle"],
         ),
         Spacer(1, 6),
@@ -777,7 +789,7 @@ def build_pdf(
         PageBreak(),
         p("รายละเอียดข้อมูลและการตรวจสอบ / Data Integrity and Audit Details", styles["title"]),
         p(
-            f"Direct API collection: {audit['row_count']} Active Backup results normalized and verified before PDF generation.",
+            f"Live NAS API snapshot collected at {collected_at.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok). Latest Active Backup result from NAS: {latest_result_time.strftime('%d/%m/%Y %H:%M:%S') if latest_result_time else 'none in window'}. Configured tasks: {audit.get('task_count', audit['row_count'])}; results in report window: {audit.get('result_count', audit['row_count'])}; missing: {audit.get('missing_task_count', 0)}.",
             styles["subtitle"],
         ),
         Spacer(1, 7),
@@ -786,14 +798,14 @@ def build_pdf(
         KeepTogether([
             p("หมายเหตุการตีความ / Interpretation Notes", styles["section"]),
             p(
-                "1. Check is reported only when the Active Backup API returns Warning, Failed, warning_count or error_count. "
+                "1. Check is reported when the NAS API returns Warning, Failed, warning_count, error_count, or no task result exists inside the daily report window. "
                 "2. Same Size and History Window are supporting information and do not change a Successful NAS status to Check. "
-                "3. The PDF generator stops when either NAS API cannot be read or no daily Active Backup results are available.",
+                "3. Old results are never substituted for a missing result in the current daily window.",
                 styles["note"],
             ),
             Spacer(1, 5),
             p(
-                f"Data sources: {Path(audit['result_path']).name} and {Path(audit['raw_path']).name}. Cloud Sync connections: {audit.get('cloud_sync', {}).get('connection_count', 'N/A')}; status: {audit.get('cloud_sync', {}).get('tray_status', 'N/A')}.",
+                f"NAS source APIs: {audit.get('source_api', 'Active Backup Web API')} and Cloud Sync Web API. Report period: {period_text}. Cloud Sync connections: {audit.get('cloud_sync', {}).get('connection_count', 'N/A')}; status: {audit.get('cloud_sync', {}).get('tray_status', 'N/A')}.",
                 styles["note"],
             ),
         ]),

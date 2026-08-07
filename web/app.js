@@ -86,7 +86,11 @@ function sitePayload(site) {
 function allSettings() {
   return {
     primary: sitePayload("primary"), remote: sitePayload("remote"), sangfor: sitePayload("sangfor"),
-    report: {server_name:$("serverName").value.trim(), alert_days:Number($("alertDays").value||3)}
+    report: {
+      server_name:$("serverName").value.trim(),
+      alert_days:Number($("alertDays").value||7),
+      report_hour:Number($("reportHour").value||9)
+    }
   };
 }
 
@@ -124,6 +128,7 @@ async function loadSettings() {
   $("sangforEnabled").checked=s.sangfor.enabled;
   $("sangforBackupPath").value=s.sangfor.backup_path;
   $("serverName").value=s.report.server_name; $("alertDays").value=s.report.alert_days;
+  $("reportHour").value=s.report.report_hour??9;
 }
 
 async function saveSettings() {
@@ -197,7 +202,7 @@ async function generateReport() {
   try {
     const response=await api("/api/generate",{method:"POST",body:JSON.stringify(allSettings())});
     setStatus("report","สร้างรายงานสำเร็จ","ok");
-    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรายการ Active Backup: ${response.rows}\nสถานะ Check จาก NAS: ${response.check_count}\nYard/Cloud Sync connections: ${response.cloud_sync.connection_count}\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?"แนบแล้ว":"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
+    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรอบข้อมูลถึง: ${response.data_cutoff}\nผล Active Backup ล่าสุดจาก NAS: ${response.latest_result_time||"ไม่พบในรอบ"}\nสถานะรายงาน: ${response.is_final_window?"รอบ 09:00 สมบูรณ์":"ฉบับก่อน 09:00"}\nรายการ Active Backup: ${response.rows}\nงานไม่มีผลในรอบ: ${response.missing_task_count}\nสถานะ Check จาก NAS: ${response.check_count}\nYard/Cloud Sync connections: ${response.cloud_sync.connection_count}\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?"แนบแล้ว":"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
     downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {

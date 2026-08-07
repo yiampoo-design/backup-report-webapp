@@ -6,7 +6,15 @@
 2. Confirm all saved-source indicators are present.
 3. Use the individual test buttons after a source password or URL changes.
 4. Run Sangfor test capture and inspect its preview after aCloud UI upgrades.
-5. Generate the PDF and check the seven-day history.
+5. Generate the final PDF at or after 09:00 Asia/Bangkok and check the seven-day history.
+
+## Daily 09:00 report window
+
+- The final daily window is 00:00-09:00 Asia/Bangkok for the current calendar date.
+- A report generated before 09:00 is explicitly labelled `Pre-09:00 draft`; its cutoff is the actual collection time.
+- A report generated after 09:00 keeps the 09:00 cutoff so the report is reproducible for the scheduled delivery.
+- Each configured Active Backup task must have a NAS result inside that window. Missing tasks are shown as `Check`; an older result is retained only in the history table and is never substituted as the current result.
+- The PDF prints the collection timestamp, newest NAS result timestamp, configured task count, in-window result count and missing task count.
 
 ## Health checks
 

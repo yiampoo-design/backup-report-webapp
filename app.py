@@ -26,7 +26,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.7.5-yard-status"
+APP_VERSION = "0.7.6-daily-0900"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -50,7 +50,7 @@ SESSIONS_LOCK = threading.Lock()
 
 
 DEFAULT_SETTINGS = {
-    "version": 2,
+    "version": 3,
     "primary": {
         "label": "NAS เครื่องหลัก - Active Backup",
         "url": "https://nas-primary.example.local:5001",
@@ -79,6 +79,7 @@ DEFAULT_SETTINGS = {
     "report": {
         "server_name": "BACKUP-SERVER",
         "alert_days": 7,
+        "report_hour": 9,
     },
 }
 
@@ -120,7 +121,7 @@ def save_settings(payload: dict) -> dict:
         elif submitted.get("forget_password"):
             current[section]["password_encrypted"] = ""
     submitted_report = payload.get("report", {})
-    for key in ("server_name", "alert_days"):
+    for key in ("server_name", "alert_days", "report_hour"):
         if key in submitted_report:
             current["report"][key] = submitted_report[key]
 
@@ -252,7 +253,11 @@ def generate_report(payload: dict) -> dict:
     remote = SynologyClient(remote_config["url"], verify_ssl=bool(remote_config.get("verify_ssl", True)), timeout=30)
     try:
         primary.login(primary_config["username"], primary_password)
-        rows, audit = collect_active_backup(primary, int(report_settings.get("alert_days", 7)))
+        rows, audit = collect_active_backup(
+            primary,
+            int(report_settings.get("alert_days", 7)),
+            int(report_settings.get("report_hour", 9)),
+        )
         remote.login(remote_config["username"], remote_password)
         audit["cloud_sync"] = collect_cloud_sync(remote)
         audit["cloud_sync"]["site_label"] = str(remote_config.get("label") or "Yard - Cloud Sync")
@@ -284,7 +289,16 @@ def generate_report(payload: dict) -> dict:
         server_name=str(report_settings.get("server_name") or "BACKUP-SERVER"),
         sangfor_capture_path=sangfor_capture_path,
     )
-    return {"ok": True, "name": output.name, "path": str(output), "url": f"/api/report/{quote(output.name)}", "rows": len(rows), "check_count": sum(1 for row in rows if row["Audit Status"] == "Check"), "cloud_sync": audit["cloud_sync"], "sangfor": sangfor_result}
+    return {
+        "ok": True, "name": output.name, "path": str(output),
+        "url": f"/api/report/{quote(output.name)}", "rows": len(rows),
+        "check_count": sum(1 for row in rows if row["Audit Status"] == "Check"),
+        "missing_task_count": audit["missing_task_count"],
+        "data_cutoff": audit["data_cutoff"].isoformat(),
+        "latest_result_time": audit["latest_result_time"].isoformat() if audit["latest_result_time"] else None,
+        "is_final_window": audit["is_final_window"],
+        "cloud_sync": audit["cloud_sync"], "sangfor": sangfor_result,
+    }
 
 
 def find_port(start: int = 8765) -> int:
