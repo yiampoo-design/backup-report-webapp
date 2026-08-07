@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from http.cookies import SimpleCookie
 
 from build_backup_report import build_pdf
-from api_collector import collect_active_backup, collect_cloud_sync
+from api_collector import collect_active_backup, collect_drive_sharesync
 from credential_store import protect_text, unprotect_text
 from auth_store import AuthStore
 from sangfor_capture import SangforCaptureError, capture_sangfor
@@ -26,7 +26,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.7.9-yard-status"
+APP_VERSION = "0.8.0-yard-sharesync"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -50,7 +50,7 @@ SESSIONS_LOCK = threading.Lock()
 
 
 DEFAULT_SETTINGS = {
-    "version": 3,
+    "version": 4,
     "primary": {
         "label": "NAS เครื่องหลัก - Active Backup",
         "url": "https://nas-primary.example.local:5001",
@@ -60,7 +60,7 @@ DEFAULT_SETTINGS = {
         "profile": "active_backup",
     },
     "remote": {
-        "label": "Yard - Cloud Sync",
+        "label": "Yard - Drive ShareSync",
         "url": "https://nas-secondary.example.local:5001",
         "username": "",
         "password_encrypted": "",
@@ -105,6 +105,10 @@ def load_settings() -> dict:
                     settings[section][key] = submitted[key]
         if int(loaded.get("version", 1) or 1) < 2 and int(settings["report"].get("alert_days", 3) or 3) == 3:
             settings["report"]["alert_days"] = 7
+        if int(loaded.get("version", 1) or 1) < 4:
+            old_label = str(settings["remote"].get("label") or "")
+            if "Cloud Sync" in old_label:
+                settings["remote"]["label"] = old_label.replace("Cloud Sync", "Drive ShareSync")
     return settings
 
 
@@ -168,7 +172,10 @@ def test_site(section: str, submitted: dict | None = None) -> dict:
     expected = (
         ["SYNO.ActiveBackup.Task", "SYNO.ActiveBackup.Log", "SYNO.ActiveBackup.Report"]
         if config["profile"] == "active_backup"
-        else ["SYNO.CloudSync", "SYNO.LogCenter.Log"]
+        else [
+            "SYNO.SynologyDriveShareSync.Connection",
+            "SYNO.SynologyDriveShareSync.Session",
+        ]
     )
     try:
         client.login(config["username"], password)
@@ -181,11 +188,13 @@ def test_site(section: str, submitted: dict | None = None) -> dict:
             "security_warning": config["url"].lower().startswith("http://"),
         }
         if config["profile"] == "cloud_sync":
-            cloud = collect_cloud_sync(client)
+            cloud = collect_drive_sharesync(client)
             result.update({
                 "data_ready": cloud["readiness"] == "ready",
                 "readiness": cloud["readiness"],
                 "connection_count": cloud["connection_count"],
+                "up_to_date_count": cloud["up_to_date_count"],
+                "healthy": cloud["healthy"],
                 "paused": cloud["paused"],
                 "tray_status": cloud["tray_status"],
                 "api_methods": cloud["api_methods"],
@@ -270,15 +279,15 @@ def generate_report(payload: dict) -> dict:
             int(report_settings.get("report_hour", 9)),
         )
         remote.login(remote_config["username"], remote_password)
-        audit["cloud_sync"] = collect_cloud_sync(remote)
-        audit["cloud_sync"]["site_label"] = str(remote_config.get("label") or "Yard - Cloud Sync")
+        audit["cloud_sync"] = collect_drive_sharesync(remote)
+        audit["cloud_sync"]["site_label"] = str(remote_config.get("label") or "Yard - Drive ShareSync")
     finally:
         primary.logout()
         remote.logout()
         primary_password = remote_password = ""
     audit.update({
         "result_sha": "direct-api", "raw_sha": "direct-api",
-        "result_path": Path("Active Backup Web API"), "raw_path": Path("Cloud Sync Web API"),
+        "result_path": Path("Active Backup Web API"), "raw_path": Path("Drive ShareSync Web API"),
     })
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     sangfor_capture_path = None

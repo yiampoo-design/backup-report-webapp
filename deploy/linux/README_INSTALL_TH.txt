@@ -13,7 +13,7 @@ Version 0.7.4 starts the PDF download automatically after report generation.
 Version 0.7.5 aligns Check with NAS status, uses a 7-day comparison window and adds a Yard/Cloud Sync report page.
 Version 0.7.6 uses a daily 00:00-09:00 Asia/Bangkok NAS API window, labels pre-09:00 drafts and reports missing current-window tasks without substituting old results.
 Version 0.7.7 verifies that Sangfor Latest Backup is sorted newest-to-oldest before every test and report capture.
-Version 0.7.9 verifies live Cloud Sync data during the Yard test and distinguishes API success with zero connections from a connection failure.
+Version 0.8.0 reads Yard status from Synology Drive ShareSync Connection, Session and sync-history APIs, matching DSM's Synced folders page.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh

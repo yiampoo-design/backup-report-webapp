@@ -543,9 +543,11 @@ def exception_detail_elements(
 
 def cloud_sync_elements(audit: dict[str, object], styles):
     cloud = audit.get("cloud_sync") or {}
-    site_label = str(cloud.get("site_label") or "Yard - Cloud Sync")
+    site_label = str(cloud.get("site_label") or "Yard - Drive ShareSync")
+    is_sharesync = cloud.get("source_type") == "drive_sharesync"
     status = str(cloud.get("tray_status") or "unknown")
     connection_count = int(cloud.get("connection_count") or 0)
+    up_to_date_count = int(cloud.get("up_to_date_count") or 0)
     paused = bool(cloud.get("paused", False))
     connections = list(cloud.get("connections") or [])
     logs = list(cloud.get("logs") or [])
@@ -553,9 +555,9 @@ def cloud_sync_elements(audit: dict[str, object], styles):
     summary = Table(
         [
             [p("Site", styles["table_header"]), p(site_label, styles["body"]),
-             p("Cloud Sync status", styles["table_header"]), p(status, styles["body"])],
-            [p("Connections", styles["table_header"]), p(connection_count, styles["body"]),
-             p("Paused", styles["table_header"]), p("Yes" if paused else "No", styles["body"])],
+             p("Drive ShareSync status" if is_sharesync else "Cloud Sync status", styles["table_header"]), p(status, styles["body"])],
+            [p("Synced folders" if is_sharesync else "Connections", styles["table_header"]), p(connection_count, styles["body"]),
+             p("Up to date" if is_sharesync else "Paused", styles["table_header"]), p(f"{up_to_date_count} of {connection_count}" if is_sharesync else ("Yes" if paused else "No"), styles["body"])],
         ],
         colWidths=[105, 272, 105, 273],
         hAlign="LEFT",
@@ -571,29 +573,44 @@ def cloud_sync_elements(audit: dict[str, object], styles):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     elements = [
-        p("รายงานไซต์ Yard / Yard Cloud Sync Report", styles["title"]),
+        p("รายงานไซต์ Yard / Yard Drive ShareSync Report" if is_sharesync else "รายงานไซต์ Yard / Yard Cloud Sync Report", styles["title"]),
         p(
+            "ข้อมูลจาก Synology Drive ShareSync Web API ของ NAS ปลายทางโดยตรง"
+            if is_sharesync else
             "ข้อมูลจาก Cloud Sync Web API และ Log Center ของ NAS ปลายทางโดยตรง",
             styles["subtitle"],
         ),
         Spacer(1, 7),
         summary,
         Spacer(1, 8),
-        p("รายการเชื่อมต่อ / Connections", styles["section"]),
+        p("รายการโฟลเดอร์ที่ซิงก์ / Synced folders" if is_sharesync else "รายการเชื่อมต่อ / Connections", styles["section"]),
     ]
 
     if connections:
-        conn_data = [[p(value, styles["table_header"]) for value in
-                      ("Name", "Provider", "Local path", "Remote path", "Status")]]
-        for item in connections:
-            conn_data.append([
-                p(item.get("name", "-"), styles["small"]),
-                p(item.get("provider", "-"), styles["small_center"]),
-                p(item.get("local_path", "-"), styles["small"]),
-                p(item.get("remote_path", "-"), styles["small"]),
-                p(item.get("status", "unknown"), styles["small_center"]),
-            ])
-        connection_table = Table(conn_data, colWidths=[150, 90, 205, 205, 105], repeatRows=1, hAlign="LEFT")
+        if is_sharesync:
+            conn_data = [[p(value, styles["table_header"]) for value in
+                          ("Remote Folder", "Local Folder", "Sync Settings", "Status")]]
+            for item in connections:
+                conn_data.append([
+                    p(item.get("remote_path", "-"), styles["small"]),
+                    p(item.get("local_path", "-"), styles["small"]),
+                    p(item.get("sync_direction", "-"), styles["small_center"]),
+                    p(item.get("status", "unknown"), styles["small_center"]),
+                ])
+            table_widths = [220, 220, 165, 150]
+        else:
+            conn_data = [[p(value, styles["table_header"]) for value in
+                          ("Name", "Provider", "Local path", "Remote path", "Status")]]
+            for item in connections:
+                conn_data.append([
+                    p(item.get("name", "-"), styles["small"]),
+                    p(item.get("provider", "-"), styles["small_center"]),
+                    p(item.get("local_path", "-"), styles["small"]),
+                    p(item.get("remote_path", "-"), styles["small"]),
+                    p(item.get("status", "unknown"), styles["small_center"]),
+                ])
+            table_widths = [150, 90, 205, 205, 105]
+        connection_table = Table(conn_data, colWidths=table_widths, repeatRows=1, hAlign="LEFT")
         connection_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), BLUE),
             ("GRID", (0, 0), (-1, -1), 0.35, GRID),
@@ -608,6 +625,8 @@ def cloud_sync_elements(audit: dict[str, object], styles):
         api_connected = bool(cloud.get("api_connected", "list_conn" in cloud.get("api_methods", [])))
         if api_connected:
             empty_message = (
+                "เชื่อมต่อ Drive ShareSync Web API สำเร็จ แต่ NAS ส่งกลับ 0 synced folders"
+                if is_sharesync else
                 "เชื่อมต่อ Cloud Sync Web API สำเร็จ แต่ NAS ส่งกลับ 0 connections "
                 f"(status: {status}; paused: {'Yes' if paused else 'No'}). "
                 "สถานะนี้เป็นผลที่ NAS ส่งกลับโดยตรง ไม่ใช่ข้อผิดพลาดการเชื่อมต่อของโปรแกรม"
@@ -634,7 +653,12 @@ def cloud_sync_elements(audit: dict[str, object], styles):
         ]))
         elements.extend([no_connections, Spacer(1, 8)])
 
-    elements.append(p("เหตุการณ์ Cloud Sync ล่าสุด / Recent Cloud Sync Events", styles["section"]))
+    elements.append(p(
+        "เหตุการณ์ Drive ShareSync ล่าสุด / Recent Drive ShareSync Events"
+        if is_sharesync else
+        "เหตุการณ์ Cloud Sync ล่าสุด / Recent Cloud Sync Events",
+        styles["section"],
+    ))
     if logs:
         log_data = [[p(value, styles["table_header"]) for value in ("Time", "Level", "Message")]]
         for item in logs[:20]:
@@ -656,6 +680,8 @@ def cloud_sync_elements(audit: dict[str, object], styles):
         elements.append(log_table)
     else:
         elements.append(p(
+            "ไม่พบเหตุการณ์ Drive ShareSync ที่ Web API ส่งกลับมาในรอบการอ่านครั้งนี้"
+            if is_sharesync else
             "ไม่พบเหตุการณ์ Cloud Sync จาก Log Center ที่ Web API ส่งกลับมาในรอบการอ่านครั้งนี้",
             styles["note"],
         ))
@@ -817,7 +843,7 @@ def build_pdf(
             ),
             Spacer(1, 5),
             p(
-                f"NAS source APIs: {audit.get('source_api', 'Active Backup Web API')} and Cloud Sync Web API. Report period: {period_text}. Cloud Sync connections: {audit.get('cloud_sync', {}).get('connection_count', 'N/A')}; status: {audit.get('cloud_sync', {}).get('tray_status', 'N/A')}.",
+                f"NAS source APIs: {audit.get('source_api', 'Active Backup Web API')} and {audit.get('cloud_sync', {}).get('source_label', 'Drive ShareSync Web API')}. Report period: {period_text}. Yard synced folders: {audit.get('cloud_sync', {}).get('connection_count', 'N/A')}; up to date: {audit.get('cloud_sync', {}).get('up_to_date_count', 'N/A')}; status: {audit.get('cloud_sync', {}).get('tray_status', 'N/A')}.",
                 styles["note"],
             ),
         ]),

@@ -247,6 +247,149 @@ def _normalize_cloud_log(item: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _sharesync_status(value: Any) -> str:
+    raw = str(value or "unknown").strip().lower()
+    labels = {
+        "uptodate": "Up to date",
+        "syncing": "Syncing",
+        "connecting": "Connecting",
+        "pause": "Paused",
+        "stop": "Stopped",
+        "unlink": "Unlinked",
+    }
+    if raw.startswith("err_"):
+        return f"Error ({raw[4:].replace('_', ' ')})"
+    return labels.get(raw, str(value or "Unknown"))
+
+
+def _sharesync_direction(value: Any) -> str:
+    raw = str(value if value is not None else "").strip().lower()
+    return {
+        "0": "Two-way sync",
+        "two_way": "Two-way sync",
+        "two-way": "Two-way sync",
+        "bidirectional": "Two-way sync",
+        "1": "Upload only",
+        "upload": "Upload only",
+        "2": "Download only",
+        "download": "Download only",
+    }.get(raw, str(value or "-"))
+
+
+def _sharesync_time(value: Any) -> str:
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return str(value or "-")
+    return datetime.fromtimestamp(numeric, BANGKOK).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def collect_drive_sharesync(client: SynologyClient) -> dict[str, Any]:
+    """Collect the same Synology Drive ShareSync data shown by DSM's Synced folders page."""
+    connection_api = "SYNO.SynologyDriveShareSync.Connection"
+    session_api = "SYNO.SynologyDriveShareSync.Session"
+    definitions = client.discover([connection_api, session_api])
+    missing = [api for api in (connection_api, session_api) if api not in definitions]
+    if missing:
+        raise SynologyApiError("Drive ShareSync API is not available: " + ", ".join(missing))
+
+    connection_data = client.call(connection_api, "list", version=1)
+    raw_connections = _list_values(connection_data)
+    sync_folders: list[dict[str, str]] = []
+    errors: dict[str, str] = {}
+    methods = [f"{connection_api}.list"]
+
+    for connection in raw_connections:
+        conn_id = _first_value(connection, "id", "conn_id", default="")
+        if conn_id == "":
+            continue
+        try:
+            session_data = client.call(
+                session_api,
+                "list",
+                {"conn_id": conn_id, "offset": 0, "limit": 1024},
+                version=1,
+            )
+            methods.append(f"{session_api}.list")
+        except SynologyApiError as exc:
+            errors[f"session_{conn_id}"] = str(exc)
+            continue
+        for item in _list_values(session_data):
+            enabled = bool(_first_value(item, "enable", "enabled", default=True))
+            raw_status = _first_value(item, "status", "db_status", default="unknown")
+            sync_folders.append({
+                "name": str(_first_value(item, "remote_share", "local_share", default="-")),
+                "provider": "Synology Drive ShareSync",
+                "local_path": str(_first_value(item, "local_share", default="-")),
+                "remote_path": str(_first_value(item, "remote_share", default="-")),
+                "sync_direction": _sharesync_direction(_first_value(item, "sync_direction", default="0")),
+                "status": _sharesync_status(raw_status),
+                "raw_status": str(raw_status),
+                "enabled": "Yes" if enabled else "No",
+                "connection": str(_first_value(connection, "server_name", "name", default=conn_id)),
+            })
+
+    logs: list[dict[str, str]] = []
+    try:
+        history_data = client.call(
+            session_api,
+            "list_sync_history",
+            {"offset": 0, "limit": 200, "sess_id": 0},
+            version=1,
+        )
+        methods.append(f"{session_api}.list_sync_history")
+        history_items = history_data.get("history_items", [])
+        if isinstance(history_items, list):
+            for item in history_items:
+                if not isinstance(item, dict):
+                    continue
+                action = str(_first_value(item, "action", default="-")).replace("_", " ").title()
+                path = str(_first_value(item, "path", default="-"))
+                logs.append({
+                    "time": _sharesync_time(_first_value(item, "time", default="")),
+                    "level": action,
+                    "message": f"{action}: {path}",
+                })
+    except SynologyApiError as exc:
+        errors["sync_history"] = str(exc)
+
+    enabled_folders = [item for item in sync_folders if item["enabled"] == "Yes"]
+    up_to_date_count = sum(1 for item in enabled_folders if item["raw_status"].lower() == "uptodate")
+    paused = any(item["raw_status"].lower() in {"pause", "stop"} for item in enabled_folders)
+    healthy = bool(enabled_folders) and up_to_date_count == len(enabled_folders)
+    connection_statuses = [
+        str(_first_value(item, "status", default="unknown")) for item in raw_connections
+    ]
+    if healthy:
+        tray_status = "Up to date"
+        readiness = "ready"
+    elif not enabled_folders:
+        tray_status = "No synced folders"
+        readiness = "no_connections"
+    else:
+        tray_status = "Attention required"
+        readiness = "attention"
+
+    return {
+        "source_type": "drive_sharesync",
+        "source_label": "Synology Drive ShareSync Web API",
+        "connection_count": len(enabled_folders),
+        "storage_connection_count": len(raw_connections),
+        "up_to_date_count": up_to_date_count,
+        "healthy": healthy,
+        "paused": paused,
+        "tray_status": tray_status,
+        "connection_statuses": connection_statuses,
+        "connections": sync_folders,
+        "logs": logs[:50],
+        "api_methods": sorted(set(methods)),
+        "api_errors": errors,
+        "api_connected": True,
+        "has_connections": bool(enabled_folders),
+        "readiness": readiness,
+    }
+
+
 def collect_cloud_sync(client: SynologyClient) -> dict[str, Any]:
     responses: dict[str, dict[str, Any]] = {}
     errors: dict[str, str] = {}

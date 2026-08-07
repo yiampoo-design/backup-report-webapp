@@ -171,17 +171,17 @@ async function testSites(sites) {
         setStatus(site,"เชื่อมต่อไม่สำเร็จ","bad");
       } else if (site === "remote" && item.data_ready === false) {
         const warningText=item.readiness === "no_connections"
-          ? "API สำเร็จ - พบ 0 งาน"
+          ? "ShareSync - พบ 0 โฟลเดอร์"
           : item.readiness === "paused"
-            ? "API สำเร็จ - งานถูกพัก"
-            : "API สำเร็จ - ข้อมูลไม่พร้อม";
+            ? "ShareSync - งานถูกพัก"
+            : "ShareSync - ต้องตรวจสอบ";
         setStatus(site,warningText,"warn");
       } else {
-        setStatus(site,"เชื่อมต่อและอ่านข้อมูลสำเร็จ","ok");
+        setStatus(site,site === "remote"?`ShareSync ${item.up_to_date_count}/${item.connection_count} Up to date`:"เชื่อมต่อและอ่านข้อมูลสำเร็จ","ok");
       }
     }
     const lines=Object.entries(response.results).map(([site,item])=>item.ok
-      ? `${item.label}: OK\nAPI: ${item.available_apis.join(", ")}${site === "remote"?`\nCloud Sync connections: ${item.connection_count}\nCloud Sync status: ${item.tray_status}\nPaused: ${item.paused?"Yes":"No"}${item.data_ready?"":item.readiness === "no_connections"?"\nคำเตือน: เชื่อม API สำเร็จ แต่ NAS ส่งกลับ 0 connections":"\nคำเตือน: เชื่อม API สำเร็จ แต่ข้อมูล Cloud Sync ยังไม่พร้อมรายงาน"}`:""}${item.security_warning?"\nคำเตือน: URL ยังเป็น HTTP":""}`
+      ? `${item.label}: OK\nAPI: ${item.available_apis.join(", ")}${site === "remote"?`\nDrive ShareSync folders: ${item.connection_count}\nUp to date: ${item.up_to_date_count}\nOverall status: ${item.tray_status}${item.data_ready?"":"\nคำเตือน: มีรายการ Drive ShareSync ที่ต้องตรวจสอบ"}`:""}${item.security_warning?"\nคำเตือน: URL ยังเป็น HTTP":""}`
       : `${site}: ${item.error}`);
     result(lines.join("\n\n"),response.ok);
   } catch(e) { sites.forEach(s=>setStatus(s,"เชื่อมต่อไม่สำเร็จ","bad")); result(e.message,false); }
@@ -209,11 +209,11 @@ function downloadReport(url, filename) {
 async function generateReport() {
   const button=$("generateReport"); button.disabled=true;
   setStatus("report","กำลังดึงข้อมูลจาก NAS","busy");
-  result("กำลังอ่าน Active Backup และ Cloud Sync ผ่าน Web API แล้วสร้าง PDF...");
+  result("กำลังอ่าน Active Backup และ Drive ShareSync ผ่าน Web API แล้วสร้าง PDF...");
   try {
     const response=await api("/api/generate",{method:"POST",body:JSON.stringify(allSettings())});
     setStatus("report","สร้างรายงานสำเร็จ","ok");
-    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรอบข้อมูลถึง: ${response.data_cutoff}\nผล Active Backup ล่าสุดจาก NAS: ${response.latest_result_time||"ไม่พบในรอบ"}\nสถานะรายงาน: ${response.is_final_window?"รอบ 09:00 สมบูรณ์":"ฉบับก่อน 09:00"}\nรายการ Active Backup: ${response.rows}\nงานไม่มีผลในรอบ: ${response.missing_task_count}\nสถานะ Check จาก NAS: ${response.check_count}\nYard/Cloud Sync connections: ${response.cloud_sync.connection_count}\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?("แนบแล้ว; Latest Backup "+(response.sangfor.sort_verified?"เรียงล่าสุดไปเก่าสุด":"ยังไม่ยืนยัน")):"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
+    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรอบข้อมูลถึง: ${response.data_cutoff}\nผล Active Backup ล่าสุดจาก NAS: ${response.latest_result_time||"ไม่พบในรอบ"}\nสถานะรายงาน: ${response.is_final_window?"รอบ 09:00 สมบูรณ์":"ฉบับก่อน 09:00"}\nรายการ Active Backup: ${response.rows}\nงานไม่มีผลในรอบ: ${response.missing_task_count}\nสถานะ Check จาก NAS: ${response.check_count}\nYard Drive ShareSync: ${response.cloud_sync.up_to_date_count}/${response.cloud_sync.connection_count} Up to date\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?("แนบแล้ว; Latest Backup "+(response.sangfor.sort_verified?"เรียงล่าสุดไปเก่าสุด":"ยังไม่ยืนยัน")):"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
     downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {

@@ -210,8 +210,11 @@ READ_ONLY_PROBES = {
         "methods": ["list", "get"],
     },
     "cloud_sync": {
-        "apis": ["SYNO.CloudSync", "SYNO.LogCenter.Log"],
-        "methods": ["list", "get", "list_conn", "list_session", "get_status"],
+        "apis": [
+            "SYNO.SynologyDriveShareSync.Connection",
+            "SYNO.SynologyDriveShareSync.Session",
+        ],
+        "methods": ["list", "get", "list_syncfolder", "list_sync_history"],
     },
 }
 
