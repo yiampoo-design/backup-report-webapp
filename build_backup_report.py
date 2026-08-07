@@ -907,14 +907,19 @@ def build_pdf(
     report_date = audit["report_date"]
     window_start = audit.get("window_start")
     data_cutoff = audit.get("data_cutoff")
-    collected_at = audit.get("collected_at") or now
-    latest_result_time = audit.get("latest_result_time")
     is_final_window = bool(audit.get("is_final_window", True))
     period_text = (
         f"{window_start.strftime('%d/%m/%Y %H:%M')} - {data_cutoff.strftime('%d/%m/%Y %H:%M')}"
         if window_start and data_cutoff else report_date.strftime("%d/%m/%Y")
     )
     report_state = "Final 09:00 cycle" if is_final_window else "Pre-09:00 draft"
+    cross_check = audit.get("active_backup_cross_check") or {}
+    if not cross_check.get("checked"):
+        cross_check_text = "NOT AVAILABLE"
+    elif cross_check.get("consistent"):
+        cross_check_text = "MATCHED"
+    else:
+        cross_check_text = f"WARNING {cross_check.get('warning_count', 0)}"
 
     doc = SimpleDocTemplate(
         str(output_path),
@@ -931,7 +936,7 @@ def build_pdf(
     story = [
         p("รายงานสถานะการสำรองข้อมูลประจำวัน", styles["title"]),
         p(
-            f"Daily Backup Health Report | Server: {server_name} | NAS period: {period_text} | {report_state} | Generated: {now.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok)",
+            f"Daily Backup Health Report | Server: {server_name} | NAS period: {period_text} | {report_state} | Source: NAS CSV | API cross-check: {cross_check_text} | Generated: {now.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok)",
             styles["subtitle"],
         ),
         Spacer(1, 6),
@@ -940,66 +945,22 @@ def build_pdf(
     ]
 
     attention = [r for r in rows if r["Audit Status"] == "Check" or r["Status"] != "Successful"]
-    story.append(p("รายการที่ต้องตรวจสอบ / Attention Required", styles["section"]))
     if attention:
-        att_data = [[
-            p("Backup Task", styles["table_header"]),
-            p("Status", styles["table_header"]),
-            p("Audit", styles["table_header"]),
-            p("Finding", styles["table_header"]),
-        ]]
-        for row in attention:
-            att_data.append([
-                p(row["Backup Task"], styles["small"]),
-                p(row["Status"], styles["small_center"]),
-                p(row["Audit Status"], styles["small_center"]),
-                p(row["Note"], styles["small"]),
-            ])
-        att = Table(att_data, colWidths=[260, 80, 70, 345], repeatRows=1)
-        att.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), AMBER),
-            ("BACKGROUND", (0, 1), (-1, -1), AMBER_BG),
-            ("GRID", (0, 0), (-1, -1), 0.4, GRID),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        story.extend([att, Spacer(1, 7)])
-    else:
-        story.extend([p("ไม่พบรายการที่ต้องตรวจสอบ / No attention items found.", styles["body"]), Spacer(1, 7)])
+        attention_names = ", ".join(row["Backup Task"] for row in attention[:4])
+        if len(attention) > 4:
+            attention_names += f" and {len(attention) - 4} more"
+        story.extend([
+            p(
+                f"Attention Required: {len(attention)} task(s) - {attention_names}. "
+                "Full audit evidence follows the NAS overview, one page per task.",
+                styles["note"],
+            ),
+            Spacer(1, 5),
+        ])
 
     story.extend([
         p("ภาพรวมงานสำรองข้อมูล / Backup Overview", styles["section"]),
         overview_table(rows, styles),
-        PageBreak(),
-        p("รายละเอียดข้อมูลและการตรวจสอบ / Data Integrity and Audit Details", styles["title"]),
-        p(
-            f"Authoritative Active Backup CSV downloaded from NAS at {collected_at.strftime('%d/%m/%Y %H:%M:%S')} (Asia/Bangkok). Latest result in the NAS CSV: {latest_result_time.strftime('%d/%m/%Y %H:%M:%S') if latest_result_time else 'none'}. Rows: {audit.get('row_count', 0)}; missing: {audit.get('missing_task_count', 0)}.",
-            styles["subtitle"],
-        ),
-        Spacer(1, 7),
-        active_backup_cross_check_banner(audit, styles),
-        Spacer(1, 7),
-        active_backup_cross_check_details(audit, styles),
-        Spacer(1, 6),
-        audit_table(rows, styles),
-        Spacer(1, 8),
-        KeepTogether([
-            p("หมายเหตุการตีความ / Interpretation Notes", styles["section"]),
-            p(
-                "1. Status, Size, File Count, Same Size, Audit Window, Audit Status and Note are copied directly from abb_daily_result_latest.csv generated on the NAS. "
-                "2. The application does not recalculate or override the NAS CSV audit decision. "
-                "3. A stale CSV or a CSV containing mixed report dates is rejected instead of silently generating a misleading report.",
-                styles["note"],
-            ),
-            Spacer(1, 5),
-            p(
-                f"NAS source APIs: {audit.get('source_api', 'Active Backup Web API')} and {audit.get('cloud_sync', {}).get('source_label', 'Drive ShareSync Web API')}. Report period: {period_text}. Yard synced folders: {audit.get('cloud_sync', {}).get('connection_count', 'N/A')}; up to date: {audit.get('cloud_sync', {}).get('up_to_date_count', 'N/A')}; status: {audit.get('cloud_sync', {}).get('tray_status', 'N/A')}.",
-                styles["note"],
-            ),
-        ]),
     ])
     if attention:
         for exception_index, exception_row in enumerate(attention, start=1):
