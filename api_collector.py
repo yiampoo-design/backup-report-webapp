@@ -584,14 +584,43 @@ def collect_drive_sharesync(client: SynologyClient) -> dict[str, Any]:
                     continue
                 action = str(_first_value(item, "action", default="-")).replace("_", " ").title()
                 path = str(_first_value(item, "path", default="-"))
+                normalized_path = path.replace("\\", "/").rstrip("/")
+                name = normalized_path.rsplit("/", 1)[-1] if normalized_path else path
+                raw_item_type = _first_value(
+                    item, "item_type", "file_type", "type", default=""
+                )
+                raw_is_dir = str(_first_value(item, "is_dir", "is_folder", default="")).lower()
+                if raw_is_dir in {"1", "true", "yes"}:
+                    item_type = "Folder"
+                elif str(raw_item_type).strip():
+                    normalized_type = str(raw_item_type).strip().lower()
+                    item_type = {
+                        "0": "File",
+                        "1": "Folder",
+                        "file": "File",
+                        "folder": "Folder",
+                        "dir": "Folder",
+                        "directory": "Folder",
+                    }.get(
+                        normalized_type,
+                        str(raw_item_type).replace("_", " ").title(),
+                    )
+                else:
+                    item_type = "Folder" if path.endswith(("/", "\\")) else "File"
                 logs.append({
                     "time": _sharesync_time(_first_value(item, "time", default="")),
                     "level": action,
+                    "name": name,
+                    "event": action,
+                    "item_type": item_type,
+                    "path": path,
                     "message": f"{action}: {path}",
                 })
     except SynologyApiError as exc:
         errors["sync_history"] = str(exc)
 
+    sync_folders.sort(key=lambda item: item["local_path"].casefold())
+    logs.sort(key=lambda item: item["time"], reverse=True)
     enabled_folders = [item for item in sync_folders if item["enabled"] == "Yes"]
     up_to_date_count = sum(1 for item in enabled_folders if item["raw_status"].lower() == "uptodate")
     paused = any(item["raw_status"].lower() in {"pause", "stop"} for item in enabled_folders)

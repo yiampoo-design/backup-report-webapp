@@ -590,6 +590,96 @@ def exception_detail_elements(
     ]
 
 
+def sharesync_side_by_side_elements(connections, logs, styles):
+    """Render Synced folders and equally-sized latest Sync log lists side by side."""
+    visible_connections = list(connections)
+    visible_logs = list(logs)[:len(visible_connections)] if visible_connections else []
+
+    folder_data = [[p(value, styles["table_header"]) for value in
+                    ("Remote Folder", "Local Folder", "Sync Settings", "Status")]]
+    for item in visible_connections:
+        folder_data.append([
+            p(item.get("remote_path", "-"), styles["small"]),
+            p(item.get("local_path", "-"), styles["small"]),
+            p(item.get("sync_direction", "-"), styles["small_center"]),
+            p(item.get("status", "unknown"), styles["small_center"]),
+        ])
+    if len(folder_data) == 1:
+        folder_data.append([p("No synced folders", styles["small"]), "", "", ""])
+    folder_table = Table(
+        folder_data,
+        colWidths=[95, 95, 105, 75],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    folder_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BLUE),
+        ("GRID", (0, 0), (-1, -1), 0.35, GRID),
+        ("SPAN", (0, 1), (-1, 1)) if not visible_connections else ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+
+    log_data = [[p(value, styles["table_header"]) for value in
+                 ("Name", "Event", "File/Folder", "Date & Time")]]
+    for item in visible_logs:
+        name = str(item.get("name") or item.get("message") or "-")
+        if len(name) > 32:
+            name = name[:29] + "..."
+        log_data.append([
+            p(name, styles["small"]),
+            p(item.get("event") or item.get("level", "-"), styles["small_center"]),
+            p(item.get("item_type", "File"), styles["small_center"]),
+            p(item.get("time", "-"), styles["small_center"]),
+        ])
+    if len(log_data) == 1:
+        log_data.append([p("No recent events", styles["small"]), "", "", ""])
+    log_table = Table(
+        log_data,
+        colWidths=[145, 55, 65, 105],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    log_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("GRID", (0, 0), (-1, -1), 0.35, GRID),
+        ("SPAN", (0, 1), (-1, 1)) if not visible_logs else ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+
+    paired = Table(
+        [
+            [p("รายการโฟลเดอร์ที่ซิงก์ / Synced folders", styles["section"]), "",
+             p("เหตุการณ์ล่าสุด / Latest Sync log", styles["section"])],
+            [folder_table, "", log_table],
+        ],
+        colWidths=[370, 10, 370],
+        hAlign="LEFT",
+    )
+    paired.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    return [
+        paired,
+        Spacer(1, 6),
+        p(
+            f"Showing {len(visible_logs)} latest events to match {len(visible_connections)} synced folders.",
+            styles["note"],
+        ),
+    ]
+
+
 def cloud_sync_elements(audit: dict[str, object], styles):
     cloud = audit.get("cloud_sync") or {}
     site_label = str(cloud.get("site_label") or "Yard - Drive ShareSync")
@@ -634,6 +724,16 @@ def cloud_sync_elements(audit: dict[str, object], styles):
         Spacer(1, 8),
         p("รายการโฟลเดอร์ที่ซิงก์ / Synced folders" if is_sharesync else "รายการเชื่อมต่อ / Connections", styles["section"]),
     ]
+
+    if is_sharesync:
+        # Replace the sequential folder/log sections with the paired layout
+        # used by the original Yard report: folders on the left and the same
+        # number of newest sync events on the right.
+        elements.pop()
+        elements.extend(sharesync_side_by_side_elements(connections, logs, styles))
+        methods = ", ".join(cloud.get("api_methods") or []) or "none"
+        elements.append(p(f"Successful API methods: {methods}", styles["note"]))
+        return elements
 
     if connections:
         if is_sharesync:
@@ -901,8 +1001,6 @@ def build_pdf(
             ),
         ]),
     ])
-    story.append(PageBreak())
-    story.extend(cloud_sync_elements(audit, styles))
     if attention:
         for exception_index, exception_row in enumerate(attention, start=1):
             story.append(PageBreak())
@@ -916,6 +1014,8 @@ def build_pdf(
                     history_dir=history_dir,
                 )
             )
+    story.append(PageBreak())
+    story.extend(cloud_sync_elements(audit, styles))
     if sangfor_capture_path is not None:
         capture_path = Path(sangfor_capture_path)
         if not capture_path.is_file():

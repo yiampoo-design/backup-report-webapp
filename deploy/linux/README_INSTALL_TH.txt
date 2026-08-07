@@ -17,6 +17,7 @@ Version 0.8.0 reads Yard status from Synology Drive ShareSync Connection, Sessio
 Version 0.8.1 downloads /ABB_Backup/ABB_Report/abb_daily_result_latest.csv through Synology FileStation Web API and uses it as the authoritative Active Backup report source. Same Size, Audit Window and Audit Status are no longer recalculated by the web app.
 Version 0.8.2 cross-checks task name, status and latest result time against Active Backup Web API. Differences are reported as warnings and never overwrite the authoritative NAS CSV values.
 Version 0.8.3 serializes the Active Backup API cross-check timestamp before returning the web response, fixing "Object of type datetime is not JSON serializable" after report generation.
+Version 0.8.4 places each Active Backup Check detail page before Yard and renders Yard Synced folders beside an equal number of newest Sync log events on one page.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh
