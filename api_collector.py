@@ -287,12 +287,30 @@ def collect_cloud_sync(client: SynologyClient) -> dict[str, Any]:
         connection_count = max(int(reported_total or 0), len(connections))
     except (TypeError, ValueError):
         connection_count = len(connections)
+    api_connected = "list_conn" in responses
+    has_connections = connection_count > 0 or bool(connections)
+    paused = bool(_first_value(combined, "is_pause", "paused", default=False))
+    tray_status = str(
+        _first_value(combined, "tray_status", "sync_status", "status", "state", default="unknown")
+    )
+    if not api_connected:
+        readiness = "api_unavailable"
+    elif not has_connections:
+        readiness = "no_connections"
+    elif paused or tray_status.lower() in {"suspended", "paused", "stopped"}:
+        readiness = "paused"
+    else:
+        readiness = "ready"
+
     return {
         "connection_count": connection_count,
-        "paused": bool(_first_value(combined, "is_pause", "paused", default=False)),
-        "tray_status": str(_first_value(combined, "tray_status", "sync_status", "status", "state", default="unknown")),
+        "paused": paused,
+        "tray_status": tray_status,
         "connections": connections,
         "logs": logs[:50],
         "api_methods": sorted(responses),
         "api_errors": errors,
+        "api_connected": api_connected,
+        "has_connections": has_connections,
+        "readiness": readiness,
     }

@@ -167,10 +167,21 @@ async function testSites(sites) {
     const response=await api("/api/test",{method:"POST",body:JSON.stringify(payload)});
     for (const site of sites) {
       const item=response.results[site];
-      setStatus(site,item.ok?"เชื่อมต่อสำเร็จ":"เชื่อมต่อไม่สำเร็จ",item.ok?"ok":"bad");
+      if (!item.ok) {
+        setStatus(site,"เชื่อมต่อไม่สำเร็จ","bad");
+      } else if (site === "remote" && item.data_ready === false) {
+        const warningText=item.readiness === "no_connections"
+          ? "API สำเร็จ - พบ 0 งาน"
+          : item.readiness === "paused"
+            ? "API สำเร็จ - งานถูกพัก"
+            : "API สำเร็จ - ข้อมูลไม่พร้อม";
+        setStatus(site,warningText,"warn");
+      } else {
+        setStatus(site,"เชื่อมต่อและอ่านข้อมูลสำเร็จ","ok");
+      }
     }
     const lines=Object.entries(response.results).map(([site,item])=>item.ok
-      ? `${item.label}: OK\nAPI: ${item.available_apis.join(", ")}${item.security_warning?"\nคำเตือน: URL ยังเป็น HTTP":""}`
+      ? `${item.label}: OK\nAPI: ${item.available_apis.join(", ")}${site === "remote"?`\nCloud Sync connections: ${item.connection_count}\nCloud Sync status: ${item.tray_status}\nPaused: ${item.paused?"Yes":"No"}${item.data_ready?"":item.readiness === "no_connections"?"\nคำเตือน: เชื่อม API สำเร็จ แต่ NAS ส่งกลับ 0 connections":"\nคำเตือน: เชื่อม API สำเร็จ แต่ข้อมูล Cloud Sync ยังไม่พร้อมรายงาน"}`:""}${item.security_warning?"\nคำเตือน: URL ยังเป็น HTTP":""}`
       : `${site}: ${item.error}`);
     result(lines.join("\n\n"),response.ok);
   } catch(e) { sites.forEach(s=>setStatus(s,"เชื่อมต่อไม่สำเร็จ","bad")); result(e.message,false); }

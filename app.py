@@ -26,7 +26,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.7.8-all-abb-tasks"
+APP_VERSION = "0.7.9-yard-status"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -173,13 +173,24 @@ def test_site(section: str, submitted: dict | None = None) -> dict:
     try:
         client.login(config["username"], password)
         discovered = client.discover(expected)
-        return {
+        result = {
             "ok": True,
             "label": config["label"],
             "url": config["url"],
             "available_apis": sorted(discovered),
             "security_warning": config["url"].lower().startswith("http://"),
         }
+        if config["profile"] == "cloud_sync":
+            cloud = collect_cloud_sync(client)
+            result.update({
+                "data_ready": cloud["readiness"] == "ready",
+                "readiness": cloud["readiness"],
+                "connection_count": cloud["connection_count"],
+                "paused": cloud["paused"],
+                "tray_status": cloud["tray_status"],
+                "api_methods": cloud["api_methods"],
+            })
+        return result
     finally:
         client.logout()
 

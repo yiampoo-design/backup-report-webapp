@@ -160,7 +160,7 @@ def validate_and_reconcile(
 
 
 def esc(value: object) -> str:
-    return html.escape(str(value or ""))
+    return html.escape("" if value is None else str(value))
 
 
 def p(value: object, style: ParagraphStyle) -> Paragraph:
@@ -605,9 +605,21 @@ def cloud_sync_elements(audit: dict[str, object], styles):
         ]))
         elements.extend([connection_table, Spacer(1, 8)])
     else:
+        api_connected = bool(cloud.get("api_connected", "list_conn" in cloud.get("api_methods", [])))
+        if api_connected:
+            empty_message = (
+                "เชื่อมต่อ Cloud Sync Web API สำเร็จ แต่ NAS ส่งกลับ 0 connections "
+                f"(status: {status}; paused: {'Yes' if paused else 'No'}). "
+                "สถานะนี้เป็นผลที่ NAS ส่งกลับโดยตรง ไม่ใช่ข้อผิดพลาดการเชื่อมต่อของโปรแกรม"
+            )
+        else:
+            empty_message = (
+                "ไม่สามารถอ่านรายการ connection จาก Cloud Sync Web API ได้ "
+                "โปรดตรวจสอบการเชื่อมต่อ สิทธิ์ของบัญชี และสถานะ Package Cloud Sync"
+            )
         no_connections = Table(
             [[p(
-                "Cloud Sync Web API ไม่ส่งรายการ connection กลับมา โปรดตรวจสอบว่า Site นี้มีงาน Cloud Sync ที่เปิดใช้งานและบัญชีรายงานมีสิทธิ์อ่านข้อมูล",
+                empty_message,
                 styles["body"],
             )]],
             colWidths=[755],
