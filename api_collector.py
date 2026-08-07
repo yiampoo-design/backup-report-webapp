@@ -263,7 +263,9 @@ def cross_check_active_backup_api(
         "api_task_count": len(api_tasks),
         "matched_result_count": matched,
         "api_result_count_today": len(latest_today),
-        "latest_api_result_time": latest_api_result_time,
+        "latest_api_result_time": (
+            latest_api_result_time.isoformat() if latest_api_result_time else None
+        ),
         "comparison_fields": ["Backup Task", "Status", "End"],
         "authoritative_source": "abb_daily_result_latest.csv",
     }
