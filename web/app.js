@@ -267,6 +267,25 @@ function formatBytes(bytes) {
   return `${bytes} Bytes`;
 }
 
+async function deleteReport(report) {
+  if (!confirm(`ยืนยันลบรายงาน ${report.name}\n\nระบบจะลบเฉพาะ PDF และข้อความสรุปคู่กัน ไม่กระทบไฟล์ Backup บน NAS`)) return;
+  const response=await api("/api/delete-report",{method:"POST",body:JSON.stringify({name:report.name})});
+  toast(`ลบแล้ว ${response.removed.length} ไฟล์`);
+  await loadReportHistory();
+}
+
+async function cleanupReports() {
+  if (!confirm("ยืนยันลบรายงานที่เก่ากว่า 7 วันทั้งหมดหรือไม่?\n\nไฟล์ที่ลบแล้วจะกู้คืนผ่านหน้าเว็บไม่ได้ และไม่กระทบไฟล์ Backup บน NAS")) return;
+  const button=$("cleanupReports"); button.disabled=true;
+  try {
+    const response=await api("/api/cleanup-reports",{method:"POST",body:"{}"});
+    toast(response.file_count?`ลบรายงานเก่าแล้ว ${response.file_count} ไฟล์`:"ไม่พบรายงานที่เก่ากว่า 7 วัน");
+    await loadReportHistory();
+  } catch(e) {
+    result(e.message,false);
+  } finally { button.disabled=false; }
+}
+
 async function loadReportHistory() {
   const list=$("reportHistory");
   list.replaceChildren(Object.assign(document.createElement("div"),{className:"history-empty",textContent:"กำลังโหลดประวัติ..."}));
@@ -291,7 +310,9 @@ async function loadReportHistory() {
       open.href=`/api/report/${encodeURIComponent(report.name)}?token=${encodeURIComponent(token)}`;
       const download=document.createElement("a"); download.className="button ghost"; download.textContent="ดาวน์โหลด";
       download.href=`/api/report/${encodeURIComponent(report.name)}?token=${encodeURIComponent(token)}&download=1`;
-      actions.append(open,download); itemHead.append(meta,actions);
+      const remove=document.createElement("button"); remove.type="button"; remove.className="button danger"; remove.textContent="ลบรายงาน";
+      remove.addEventListener("click",()=>deleteReport(report));
+      actions.append(open,download,remove); itemHead.append(meta,actions);
 
       const summary=document.createElement("div"); summary.className="report-status-summary";
       const summaryHead=document.createElement("div"); summaryHead.className="report-status-head";
@@ -336,6 +357,7 @@ $("copyDailySummary").addEventListener("click",copyDailySummary);
 $("testSangfor").addEventListener("click",testSangfor);
 document.querySelectorAll(".tab-button").forEach(button=>button.addEventListener("click",()=>selectTab(button.dataset.tab)));
 $("refreshHistory").addEventListener("click",loadReportHistory);
+$("cleanupReports").addEventListener("click",cleanupReports);
 $("openReports").addEventListener("click",async()=>{
   const response=await api("/api/open-reports",{method:"POST",body:"{}"});
   if(response.history) selectTab("history");

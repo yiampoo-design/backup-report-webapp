@@ -26,11 +26,6 @@
   </header>
 
   <main>
-    <section class="notice warning">
-      <strong>รุ่นทดสอบภายใน</strong>
-      <span>การเชื่อมต่อ NAS ผ่าน HTTP จะแสดงคำเตือน กรุณาใช้ HTTPS หรือ VPN ก่อนแจกใช้งานจริง</span>
-    </section>
-
     <section class="grid two">
       <article class="card" data-site="primary">
         <div class="card-head">
@@ -165,7 +160,10 @@
       <div id="tabHistory" class="tab-panel" role="tabpanel" hidden>
         <div class="history-head">
           <p class="hint">แสดงรายงานที่สร้างด้วยโปรแกรมนี้ภายในวันนี้และย้อนหลังอีก 6 วัน</p>
-          <button id="refreshHistory" class="button secondary">รีเฟรช</button>
+          <div class="button-row">
+            <button id="refreshHistory" class="button secondary">รีเฟรช</button>
+            <button id="cleanupReports" class="button danger">ลบรายงานเก่ากว่า 7 วัน</button>
+          </div>
         </div>
         <div id="historySummary" class="history-summary"></div>
         <div id="reportHistory" class="reports"><div class="history-empty">กำลังโหลดประวัติ...</div></div>

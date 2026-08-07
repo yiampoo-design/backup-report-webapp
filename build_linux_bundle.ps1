@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $OutputRoot = Join-Path $ProjectRoot "output\linux"
-$BundleName = "PylonBackupReport-v0.8.8-linux"
+$BundleName = "PylonBackupReport-v0.8.9-linux"
 $Stage = Join-Path $OutputRoot $BundleName
 $AppStage = Join-Path $Stage "app"
 

@@ -72,6 +72,8 @@ input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31,111,159,.
 .button.primary:hover { background: var(--blue-dark); }
 .button.secondary { color: var(--navy); background: #e8f0f5; }
 .button.ghost { color: var(--blue); background: transparent; border: 1px solid #b8cedb; }
+.button.danger { color: var(--red); background: var(--red-bg); border: 1px solid #e5b5b5; }
+.button.danger:hover { color: white; background: var(--red); }
 .button.compact-button { padding: 6px 10px; font-size: 11px; }
 .button.ghost.light { color: white; border-color: rgba(255,255,255,.45); }
 .button.full { width: 100%; }

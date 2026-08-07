@@ -30,7 +30,7 @@ from synology_api import SynologyApiError, SynologyClient, probe_read_only
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.8.8-summary-wording"
+APP_VERSION = "0.8.9-report-cleanup"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -408,6 +408,31 @@ def list_recent_reports(report_root: Path, days: int = 7) -> list[dict[str, obje
     return reports
 
 
+def delete_report_files(report_root: Path, filename: str) -> list[str]:
+    safe_name = Path(filename).name
+    if safe_name != filename or Path(safe_name).suffix.casefold() != ".pdf":
+        raise ValueError("ชื่อไฟล์รายงานไม่ถูกต้อง")
+    pdf_path = report_root / safe_name
+    if not pdf_path.is_file():
+        raise ValueError("ไม่พบไฟล์รายงานที่ต้องการลบ")
+    removed = []
+    for target in (pdf_path, pdf_path.with_suffix(".txt")):
+        if target.is_file():
+            target.unlink()
+            removed.append(target.name)
+    return removed
+
+
+def cleanup_old_reports(report_root: Path, days: int = 7) -> list[str]:
+    cutoff_date = (datetime.now() - timedelta(days=days - 1)).date()
+    removed = []
+    for pdf_path in sorted(report_root.glob("*.pdf")):
+        modified_date = datetime.fromtimestamp(pdf_path.stat().st_mtime).date()
+        if modified_date < cutoff_date:
+            removed.extend(delete_report_files(report_root, pdf_path.name))
+    return removed
+
+
 def generate_report(payload: dict) -> dict:
     save_settings(payload)
     report_settings = load_settings()["report"]
@@ -711,6 +736,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 return self._json(test_sangfor(payload.get("sangfor")))
             if parsed.path == "/api/generate":
                 return self._json(generate_report(payload))
+            if parsed.path == "/api/delete-report":
+                removed = delete_report_files(REPORT_ROOT, str(payload.get("name") or ""))
+                return self._json({"ok": True, "removed": removed})
+            if parsed.path == "/api/cleanup-reports":
+                removed = cleanup_old_reports(REPORT_ROOT, days=7)
+                return self._json({"ok": True, "removed": removed, "file_count": len(removed)})
             if parsed.path == "/api/open-reports":
                 if os.name == "nt":
                     os.startfile(REPORT_ROOT)
