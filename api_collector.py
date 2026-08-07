@@ -23,6 +23,15 @@ def _duration(start: int, end: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+def _backup_group(task_name: str) -> str:
+    upper_name = task_name.upper()
+    if "BACKUP_VM" in upper_name or "VM_BACKUP" in upper_name or upper_name.startswith("VM_"):
+        return "VM Backup"
+    if "SQL" in upper_name or "_DB" in upper_name or "ALFDB" in upper_name:
+        return "SQL Backup"
+    return "File Backup"
+
+
 def collect_active_backup(
     client: SynologyClient,
     alert_days: int = 7,
@@ -43,14 +52,14 @@ def collect_active_backup(
     is_final_window = collected_at >= scheduled_cutoff
     tasks_data = client.call(
         "SYNO.ActiveBackup.Task", "list",
-        {"filter": {"backup_type": 4}, "load_devices": True}, version=1,
+        {"filter": {}, "load_devices": True}, version=1,
     )
     tasks = {int(item["task_id"]): item for item in tasks_data.get("tasks", [])}
     if not tasks:
         raise ValueError("Active Backup API ไม่พบ Backup Task ที่กำหนดค่าไว้")
     history = client.call(
         "SYNO.ActiveBackup.Log", "list_result",
-        {"filter": {"backup_type": 4}, "offset": 0, "limit": 10000,
+        {"filter": {}, "offset": 0, "limit": 10000,
          "order_by": "time_start", "direction": "DESC"}, version=1,
     ).get("results", [])
     if not history:
@@ -89,8 +98,7 @@ def collect_active_backup(
     for index, (task_id, result) in enumerate(sorted(latest_by_task.items(), key=lambda pair: int(pair[1].get("time_start", 0))), 1):
         task = tasks[task_id]
         task_name = str(task.get("task_name") or result.get("task_name") or task_id)
-        upper_name = task_name.upper()
-        group = "SQL Backup" if ("SQL" in upper_name or "_DB" in upper_name or "ALFDB" in upper_name) else "File Backup"
+        group = _backup_group(task_name)
         start, end = int(result.get("time_start", 0)), int(result.get("time_end", 0))
         source = "-"
         devices = (result.get("task_config") or {}).get("device_list") or task.get("devices") or []
@@ -150,8 +158,7 @@ def collect_active_backup(
     for task_id in missing_task_ids:
         task = tasks[task_id]
         task_name = str(task.get("task_name") or task_id)
-        upper_name = task_name.upper()
-        group = "SQL Backup" if ("SQL" in upper_name or "_DB" in upper_name or "ALFDB" in upper_name) else "File Backup"
+        group = _backup_group(task_name)
         devices = task.get("devices") or []
         source = "-"
         if devices:

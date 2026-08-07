@@ -13,6 +13,7 @@ Version 0.7.4 starts the PDF download automatically after report generation.
 Version 0.7.5 aligns Check with NAS status, uses a 7-day comparison window and adds a Yard/Cloud Sync report page.
 Version 0.7.6 uses a daily 00:00-09:00 Asia/Bangkok NAS API window, labels pre-09:00 drafts and reports missing current-window tasks without substituting old results.
 Version 0.7.7 verifies that Sangfor Latest Backup is sorted newest-to-oldest before every test and report capture.
+Version 0.7.8 removes the File Server-only API filter and includes File, SQL and VM Backup tasks returned by Active Backup for Business.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh

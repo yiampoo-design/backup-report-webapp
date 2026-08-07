@@ -15,6 +15,7 @@
 - A report generated after 09:00 keeps the 09:00 cutoff so the report is reproducible for the scheduled delivery.
 - Each configured Active Backup task must have a NAS result inside that window. Missing tasks are shown as `Check`; an older result is retained only in the history table and is never substituted as the current result.
 - The PDF prints the collection timestamp, newest NAS result timestamp, configured task count, in-window result count and missing task count.
+- Active Backup collection is not limited to File Server tasks; File, SQL and VM Backup results returned by the NAS are included in the same 09:00 report window.
 
 ## Sangfor capture order
 
