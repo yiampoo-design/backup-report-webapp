@@ -22,7 +22,7 @@ Version 0.8.5 removes the repetitive Data Integrity page. Check detail pages are
 Version 0.8.6 creates an editable daily message beside the PDF, adds one-click Copy in the web UI and saves the same message as a UTF-8 text file.
 Version 0.8.7 displays each daily message inside the 7-day report history with a Copy button, so the team can review and reuse past status summaries without locating text files.
 Version 0.8.8 simplifies the daily HCI status wording to "ตรวจสอบหน้า HCI Backup สำเร็จ" while keeping the automatic Latest Backup sort before capture unchanged.
-Version 0.8.9 removes the internal HTTP warning banner and adds confirmed deletion for individual reports plus bulk cleanup of reports older than 7 days. Cleanup is limited to generated PDF and paired text files in the report folder and never touches NAS backup data.
+Version 0.9.0 changes the PDF presentation to the approved legacy pattern: Active Backup task list and 15-column result table, one evidence page per Check task, then Yard and Sangfor HCI. Start and End are displayed from the authoritative NAS CSV values. Existing report deletion and cleanup remain limited to generated PDF and paired text files in the report folder and never touch NAS backup data.
 
 1) แตกไฟล์ ZIP แล้วเข้าโฟลเดอร์ที่แตก
 2) รัน: chmod +x install.sh && ./install.sh

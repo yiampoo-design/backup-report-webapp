@@ -254,6 +254,76 @@ def cross_check_active_backup_api(
         (_dt(item.get("time_end") or item.get("time_start")) for item in latest_today.values()),
         default=None,
     )
+    legacy_tasks = []
+    for task in api_tasks:
+        if int(task.get("backup_type", 0) or 0) != 4:
+            continue
+        task_id = int(task.get("task_id", -1))
+        result = latest_today.get(task_id) or next(
+            (item for item in history if int(item.get("task_id", -1)) == task_id),
+            {},
+        )
+        device = (task.get("devices") or [{}])[0]
+        retention = task.get("retention_policy") or {}
+        mode = "Incremental" if retention.get("keep_all") is True else "Multi-versioned"
+        share_name = str(task.get("share_name") or "").strip("/")
+        target_dir = str(task.get("target_dir") or "").strip("/")
+        destination = "/" + "/".join(value for value in (share_name, target_dir) if value)
+        result_time = _dt(result.get("time_start")) if result else None
+        api_status = STATUS.get(int(result.get("status", 0) or 0), "-") if result else "-"
+        next_trigger = _dt(task.get("next_trigger_time")) if task.get("next_trigger_time") else None
+        legacy_tasks.append({
+            "task_name": str(task.get("task_name") or task_id),
+            "backup_mode": mode,
+            "device": str(device.get("host_name") or device.get("host_ip") or "-"),
+            "destination": destination or "-",
+            "last_backup": (
+                f"{api_status} {result_time:%d/%m/%Y %H:%M:%S}" if result_time else "-"
+            ),
+            "next_backup": (
+                f"Next backup time: {next_trigger:%d/%m/%Y %H:%M}" if next_trigger else "-"
+            ),
+            "task_id": task_id,
+            "result_id": int(result.get("result_id", 0) or 0) if result else 0,
+        })
+
+    check_evidence: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row.get("Audit Status") != "Check" and row.get("Status") == "Successful":
+            continue
+        task_name = str(row.get("Backup Task") or "-")
+        task = task_by_name.get(normalized_name(task_name)) or {}
+        task_id = int(task.get("task_id", -1))
+        result = latest_today.get(task_id) or {}
+        result_id = int(result.get("result_id", 0) or 0)
+        log_rows = []
+        if result_id:
+            try:
+                log_data = client.call(
+                    "SYNO.ActiveBackup.Log",
+                    "list_log",
+                    {"filter": {"result_id": result_id, "offset": 0, "limit": 100}},
+                    version=1,
+                )
+                for item in log_data.get("logs", []):
+                    level = int(item.get("log_level", 0) or 0)
+                    log_rows.append({
+                        "time": _dt(item.get("log_time")).strftime("%d/%m/%Y %H:%M:%S"),
+                        "level": "Warning" if level == 3 else "Error" if level >= 4 else "Information",
+                        "message": f"The backup task {task_name} was completed.",
+                    })
+            except SynologyApiError:
+                log_rows = []
+        task_summary = next(
+            (item for item in legacy_tasks if normalized_name(item.get("task_name")) == normalized_name(task_name)),
+            {},
+        )
+        check_evidence[task_name] = {
+            "destination": task_summary.get("destination", "-"),
+            "logs": log_rows,
+            "result_id": result_id,
+            "task_id": task_id,
+        }
     return {
         "checked": True,
         "consistent": not warnings,
@@ -268,6 +338,8 @@ def cross_check_active_backup_api(
         ),
         "comparison_fields": ["Backup Task", "Status", "End"],
         "authoritative_source": "abb_daily_result_latest.csv",
+        "legacy_tasks": legacy_tasks,
+        "check_evidence": check_evidence,
     }
 
 
