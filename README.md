@@ -39,6 +39,10 @@ Pylon Backup Report (Python, port 8780)
 รายละเอียดเพิ่มเติม:
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Claude Code instructions](CLAUDE.md)
+- [Project handoff (Thai)](docs/HANDOFF_TH.md)
+- [Claude Code starting prompt (Thai)](docs/CLAUDE_START_PROMPT_TH.md)
+- [Approved report specification](docs/REPORT_SPEC.md)
 - [Linux deployment](docs/DEPLOYMENT.md)
 - [Operations and troubleshooting](docs/OPERATIONS.md)
 - [Security notes](docs/SECURITY.md)
@@ -67,4 +71,4 @@ python -m venv .venv
 
 ## สถานะ
 
-เวอร์ชันปัจจุบัน: `0.7.8-all-abb-tasks`
+เวอร์ชันปัจจุบัน: `0.9.0-legacy-report-pattern`

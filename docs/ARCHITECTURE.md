@@ -22,16 +22,20 @@ Starts the system Chromium through Playwright, logs into aCloud, opens the confi
 
 Builds an A4 landscape PDF with ReportLab:
 
-1. Daily overview
-2. Data integrity and audit table
-3. One detail page for every task requiring `Check`
-4. Sangfor VM Backup evidence as the final page when enabled
+1. Active Backup File Server task list and the authoritative 15-column CSV table
+2. One evidence page for every task requiring `Check` or a non-success status
+3. Yard / Drive ShareSync folders and recent events
+4. Sangfor VM Backup evidence as the final page
+
+There is no separate Data Integrity summary page. See `REPORT_SPEC.md` for the
+approved page and field contract.
 
 ## Data flow
 
 1. An authenticated team member requests a report.
 2. Saved settings are merged with any submitted values.
-3. Both Synology sources are collected and normalized.
+3. The authoritative Active Backup CSV is downloaded without recalculating its
+   audit or timestamp fields; both Synology APIs supply supplemental data.
 4. Sangfor is captured when enabled.
 5. ReportLab generates the final PDF only after all required sources succeed.
 6. The report is listed in the seven-day history.

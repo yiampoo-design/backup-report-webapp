@@ -13,9 +13,13 @@
 - The final daily window is 00:00-09:00 Asia/Bangkok for the current calendar date.
 - A report generated before 09:00 is explicitly labelled `Pre-09:00 draft`; its cutoff is the actual collection time.
 - A report generated after 09:00 keeps the 09:00 cutoff so the report is reproducible for the scheduled delivery.
-- Each configured Active Backup task must have a NAS result inside that window. Missing tasks are shown as `Check`; an older result is retained only in the history table and is never substituted as the current result.
-- The PDF prints the collection timestamp, newest NAS result timestamp, configured task count, in-window result count and missing task count.
-- Active Backup collection is not limited to File Server tasks; File, SQL and VM Backup results returned by the NAS are included in the same 09:00 report window.
+- Active Backup rows, ordering, timestamps and audit fields come from the latest
+  NAS-generated `abb_daily_result_latest.csv`. The app must not synthesize a
+  missing row or recalculate its status.
+- Active Backup API results are supplemental cross-checks only. A discrepancy is
+  displayed as a warning and never replaces the CSV value.
+- File, SQL and VM Backup rows present in the CSV are included in their existing
+  CSV order.
 
 ## Sangfor capture order
 
