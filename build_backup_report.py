@@ -15,9 +15,11 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
+    Flowable,
     Image,
     KeepTogether,
     PageBreak,
@@ -354,7 +356,7 @@ def active_backup_cross_check_details(audit: dict[str, object], styles):
     warnings = list(check.get("warnings") or [])
     if not warnings:
         return p(
-            "Cross-check fields: Backup Task, Status and End time. No differences found.",
+            "Cross-check fields: Backup Task and Status. No differences found.",
             styles["note"],
         )
     visible = warnings[:8]
@@ -924,9 +926,9 @@ def legacy_task_list_table(audit: dict[str, object], styles):
 
 
 def legacy_result_table(rows: list[dict[str, str]], styles):
-    """The exact 15-column result presentation used by the legacy reports."""
+    """Daily NAS result presentation; End is intentionally not synthesized."""
     headers = (
-        "No.", "Group", "Backup Task", "Status", "Source", "Start", "End",
+        "No.", "Group", "Backup Task", "Status", "Source", "Start",
         "Duration", "Size", "File Count", "Warning/Error", "Unchanged",
         "Same Size", "Audit Same Size", "Audit Status",
     )
@@ -949,13 +951,13 @@ def legacy_result_table(rows: list[dict[str, str]], styles):
             p(row["No."], tiny_center), p(row["Group"], tiny),
             p(row["Backup Task"], tiny), p(row["Status"], tiny_center),
             p(row["Source"], tiny_center), p(csv_datetime(row["Start"]), tiny_center),
-            p(csv_datetime(row["End"]), tiny_center), p(row["Duration"], tiny_center),
+            p(row["Duration"], tiny_center),
             p(row["Size"], tiny_right), p(row["File Count"], tiny_right),
             p(row["Warning/Error"], tiny_center), p(row["Unchanged"], tiny_right),
             p(row["Same Size"], tiny_center), p(row["Audit Same Size"], tiny_center),
             p(row["Audit Status"], tiny_center),
         ])
-    widths = [18, 45, 132, 46, 58, 72, 72, 44, 47, 38, 45, 44, 40, 50, 44]
+    widths = [18, 47, 144, 48, 62, 83, 47, 50, 41, 48, 47, 43, 54, 48]
     table = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT")
     commands = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D66AC4")),
@@ -969,58 +971,52 @@ def legacy_result_table(rows: list[dict[str, str]], styles):
     ]
     for index, row in enumerate(rows, start=1):
         audit_bg = colors.HexColor("#11B958") if row["Audit Status"] == "OK" else colors.HexColor("#F59AA5")
-        commands.append(("BACKGROUND", (14, index), (14, index), audit_bg))
+        commands.append(("BACKGROUND", (13, index), (13, index), audit_bg))
         if row["Audit Status"] == "Check" or row["Status"] != "Successful":
-            commands.append(("BACKGROUND", (0, index), (13, index), AMBER_BG))
+            commands.append(("BACKGROUND", (0, index), (12, index), AMBER_BG))
     table.setStyle(TableStyle(commands))
     return table
 
 
 def legacy_check_elements(row: dict[str, str], audit: dict[str, object], styles):
-    """One audit-evidence page per Check task, matching the legacy page order."""
-    cross_check = audit.get("active_backup_cross_check") or {}
-    evidence = (cross_check.get("check_evidence") or {}).get(row["Backup Task"], {})
-    logs = list(evidence.get("logs") or [])
-    destination = evidence.get("destination") or "-"
+    """One evidence page per Check task, sourced from the appended AUDIT block."""
+    detail_source = dict(row.get("_audit_detail") or {})
     note_style = ParagraphStyle(
         "LegacyCheckNote", parent=styles["body"], fontName="Tahoma-Bold",
         fontSize=9, leading=12, textColor=TEXT,
     )
-    label = f"หมายเหตุ : มี 1 Task ขนาดไฟล์ Backup เท่าเดิม 3 วัน"
-    task_line = f"{row['No.']} {row['Group']} {row['Backup Task']}  Backup   {row['Status']}  Backup สำเร็จไม่มีไฟล์ใหม่"
+    label = f"หมายเหตุ : {row['Backup Task']} เข้าเงื่อนไขตรวจสอบ {row['Audit Same Size']}"
+    task_line = detail_source.get("ผลตรวจสอบ") or row["Note"]
     detail_data = [
         [p("Task Name", styles["table_header"]), p(row["Backup Task"], styles["body"])],
-        [p("Source", styles["table_header"]), p(row["Source"], styles["body"])],
-        [p("Destination", styles["table_header"]), p(destination, styles["body"])],
-        [p("Start", styles["table_header"]), p(csv_datetime(row["Start"]), styles["body"])],
-        [p("End", styles["table_header"]), p(csv_datetime(row["End"]), styles["body"])],
-        [p("Transferred Size", styles["table_header"]), p(row["Size"], styles["body"])],
+        [p("Group", styles["table_header"]), p(row["Group"], styles["body"])],
+        [p("Backup Status", styles["table_header"]), p(detail_source.get("Backup Status") or row["Status"], styles["body"])],
+        [p("Source", styles["table_header"]), p(detail_source.get("Source") or row["Source"], styles["body"])],
+        [p("Last Backup", styles["table_header"]), p(detail_source.get("Last Backup") or csv_datetime(row["Start"]), styles["body"])],
+        [p("Duration", styles["table_header"]), p(row["Duration"], styles["body"])],
+        [p("Backup Size", styles["table_header"]), p(detail_source.get("Backup Size") or row["Size"], styles["body"])],
+        [p("File Count", styles["table_header"]), p(detail_source.get("File Count") or row["File Count"], styles["body"])],
+        [p("Audit Same Size", styles["table_header"]), p(detail_source.get("Audit Same Size") or row["Audit Same Size"], styles["body"])],
+        [p("Audit Result", styles["table_header"]), p(detail_source.get("Audit Result") or row["Audit Status"], styles["body"])],
     ]
-    detail = Table(detail_data, colWidths=[82, 158])
+    detail = Table(detail_data, colWidths=[82, 178])
     detail.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, -1), NAVY), ("GRID", (0, 0), (-1, -1), .35, GRID),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    log_data = [[p(v, styles["table_header"]) for v in ("Time", "Level", "Message")]]
-    for item in logs[:8]:
-        log_data.append([
-            p(item.get("time", "-"), styles["small_center"]),
-            p(item.get("level", "-"), styles["small_center"]),
-            p(item.get("message", "-"), styles["small"]),
-        ])
-    if len(log_data) == 1:
-        log_data.append([p(csv_datetime(row["End"]), styles["small_center"]), p("Information", styles["small_center"]), p(f"The backup task {row['Backup Task']} was completed.", styles["small"])])
-    log_table = Table(log_data, colWidths=[90, 62, 158], repeatRows=1)
-    log_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY), ("GRID", (0, 0), (-1, -1), .35, GRID),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 3),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3), ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    audit_text = detail_source.get("ผลตรวจสอบ") or row["Note"]
+    audit_panel = Table([[p("ผลตรวจสอบจาก NAS", styles["table_header"])],
+                         [p(audit_text, styles["body"])]], colWidths=[280])
+    audit_panel.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY), ("BOX", (0, 0), (-1, -1), .5, GRID),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6), ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
-    success = Table([[p("Successful", ParagraphStyle("LegacySuccess", parent=styles["title"], fontSize=15, textColor=GREEN, alignment=TA_CENTER))],
-                     [p(f"Backup completed at {csv_datetime(row['End'])}", styles["small_center"])],
+    success = Table([[p(row["Status"], ParagraphStyle("LegacySuccess", parent=styles["title"], fontSize=15, textColor=GREEN, alignment=TA_CENTER))],
+                     [p(f"Last Backup: {detail_source.get('Last Backup') or csv_datetime(row['Start'])}", styles["small_center"])],
                      [p(f"Size: {row['Size']} | File Count: {row['File Count']}", styles["small_center"])],
                      [p(f"Audit Same Size: {row['Audit Same Size']}", styles["small_center"]) ]], colWidths=[185])
     success.setStyle(TableStyle([
@@ -1028,7 +1024,7 @@ def legacy_check_elements(row: dict[str, str], audit: dict[str, object], styles)
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 9),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
-    panels = Table([[detail, log_table, success]], colWidths=[240, 310, 185], hAlign="LEFT")
+    panels = Table([[detail, audit_panel, success]], colWidths=[260, 280, 185], hAlign="LEFT")
     panels.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
@@ -1055,6 +1051,54 @@ def legacy_yard_elements(audit: dict[str, object], styles):
     paired = Table([[p("รายการโฟลเดอร์ที่ซิงก์ / Synced folders", styles["section"]), "", p("เหตุการณ์ล่าสุด / Latest Sync log", styles["section"])], [folder_table, "", log_table]], colWidths=[375, 8, 375])
     paired.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     return [p(title, styles["title"]), Spacer(1, 7), paired]
+
+
+def fitted_image(path: Path, max_width: float, max_height: float) -> Image:
+    if not path.is_file():
+        raise ValueError(f"Capture image not found: {path}")
+    width, height = ImageReader(str(path)).getSize()
+    scale = min(max_width / width, max_height / height)
+    image = Image(str(path), width=width * scale, height=height * scale)
+    image.hAlign = "CENTER"
+    return image
+
+
+def legacy_check_capture_elements(row: dict[str, str], audit: dict[str, object], styles):
+    """Use the final DSM browser screenshot as the audit evidence page."""
+    captures = dict(audit.get("audit_captures") or {}).get(row["Backup Task"])
+    if not captures:
+        raise ValueError(f"Missing DSM Audit capture for task: {row['Backup Task']}")
+    capture_path = Path(str(captures[-1]))
+    same_size = str(row.get("Audit Same Size") or "-")
+    note = f"หมายเหตุ : {row['Backup Task']} เข้าเงื่อนไขตรวจสอบ {same_size}"
+    finding = str((row.get("_audit_detail") or {}).get("ผลตรวจสอบ") or row.get("Note") or "-")
+    task_line = (
+        f"{row.get('No.', '-')}    {row.get('Group', '-')}  {row['Backup Task']}  "
+        f"Backup {row.get('Status', '-')}  {finding}"
+    )
+    return [
+        p(note, styles["body"]),
+        Spacer(1, 6),
+        p(task_line, styles["body"]),
+        Spacer(1, 8),
+        fitted_image(capture_path, 275 * mm, 145 * mm),
+    ]
+
+
+def legacy_yard_capture_elements(audit: dict[str, object], styles):
+    yard = dict(audit.get("yard_capture") or {})
+    capture_path = Path(str(yard.get("path") or ""))
+    up_to_date = int(yard.get("visible_up_to_date") or 0)
+    title = (
+        "Backup to Cloud (Yard) : Active Tasks are Up-to-Date"
+        if up_to_date > 0
+        else "Backup to Cloud (Yard) : Please verify the captured status"
+    )
+    return [
+        p(title, styles["title"]),
+        Spacer(1, 7),
+        fitted_image(capture_path, 270 * mm, 150 * mm),
+    ]
 
 
 def page_header(canvas, logo_path: Path):
@@ -1110,6 +1154,7 @@ def build_pdf(
     history_dir: Path | None = None,
     sangfor_capture_path: Path | None = None,
     logo_path: Path | None = None,
+    task_list_image_path: Path | None = None,
 ):
     regular_font = os.environ.get("BACKUP_REPORT_FONT_REGULAR", r"C:\Windows\Fonts\tahoma.ttf")
     bold_font = os.environ.get("BACKUP_REPORT_FONT_BOLD", r"C:\Windows\Fonts\tahomabd.ttf")
@@ -1128,7 +1173,7 @@ def build_pdf(
         pagesize=landscape(A4),
         leftMargin=10 * mm,
         rightMargin=10 * mm,
-        topMargin=27 * mm,
+        topMargin=8 * mm,
         bottomMargin=12 * mm,
         title=f"Daily Backup Health Report {report_date.isoformat()}",
         author="Pylon Backup Report",
@@ -1147,45 +1192,81 @@ def build_pdf(
             bottomPadding=0,
         )
 
-    frame_a = make_frame("report-frame-a")
-    frame_b = make_frame("report-frame-b")
+    report_frame = make_frame("report-frame")
 
     def draw_header_footer(canvas, current_doc):
-        page_header(canvas, report_logo)
         page_footer(canvas, current_doc, server_name=server_name)
 
-    def reset_frame_a(canvas, current_doc):
-        frame_a._reset()
-        draw_header_footer(canvas, current_doc)
+    def flow_header():
+        class ReportHeader(Flowable):
+            def wrap(self, available_width, available_height):
+                self.width = available_width
+                self.height = 16 * mm
+                return self.width, self.height
 
-    def reset_frame_b(canvas, current_doc):
-        frame_b._reset()
+            def draw(self):
+                self.canv.drawImage(
+                    str(report_logo), 0, 3 * mm, width=15 * mm, height=12 * mm,
+                    preserveAspectRatio=True, anchor="c", mask="auto",
+                )
+                self.canv.setFillColor(NAVY)
+                self.canv.setFont("Tahoma-Bold", 11)
+                self.canv.drawString(20 * mm, 10.5 * mm, "Pylon Backup Report")
+                self.canv.setFillColor(MUTED)
+                self.canv.setFont("Tahoma", 6.5)
+                self.canv.drawString(
+                    20 * mm, 6 * mm,
+                    "PYLON IT OPERATIONS - Automated Backup Reporting",
+                )
+                self.canv.setStrokeColor(BLUE)
+                self.canv.setLineWidth(0.8)
+                self.canv.line(0, 0, self.width, 0)
+
+        return ReportHeader()
 
     doc.addPageTemplates([
-        PageTemplate(id="report-a", frames=[frame_a], onPage=reset_frame_a, autoNextPageTemplate="report-b"),
-        PageTemplate(id="report-b", frames=[frame_b], onPage=reset_frame_b, onPageEnd=draw_header_footer, autoNextPageTemplate="report-a"),
+        PageTemplate(id="report", frames=[report_frame], onPage=draw_header_footer),
     ])
 
-    # Page order and information fields intentionally follow the six approved
-    # legacy reports: Active Backup, one page per Check, Yard, then Sangfor HCI.
+    # Page order follows the approved legacy reports: authoritative CSV table,
+    # one CSV AUDIT detail page per Check, Yard API table, then Sangfor HCI.
     story = [
+        flow_header(),
+        Spacer(1, 7),
         legacy_date_line(report_date, styles),
         p("รายงานการสำรองข้อมูลประจำวัน (Report Backup)", styles["title"]),
-        Spacer(1, 4),
-        legacy_task_list_table(audit, styles),
+        p(f"Source CSV: Uploaded file / {audit.get('result_path') or '-'}", styles["note"]),
         Spacer(1, 7),
-        legacy_result_table(rows, styles),
     ]
+    if task_list_image_path is not None:
+        task_list_path = Path(task_list_image_path)
+        if not task_list_path.is_file():
+            raise ValueError(f"Task List image not found: {task_list_path}")
+        image_width, image_height = ImageReader(str(task_list_path)).getSize()
+        scale = min((260 * mm) / image_width, (82 * mm) / image_height)
+        task_list_image = Image(
+            str(task_list_path),
+            width=image_width * scale,
+            height=image_height * scale,
+        )
+        task_list_image.hAlign = "CENTER"
+        story.extend([
+            p("Active Backup for Business - Task List", styles["section"]),
+            Spacer(1, 3),
+            task_list_image,
+            Spacer(1, 5),
+        ])
+    story.append(legacy_result_table(rows, styles))
 
     attention = [
         row for row in rows
         if row["Audit Status"] == "Check" or row["Status"] != "Successful"
     ]
     for row in attention:
-        story.extend([PageBreak(), legacy_date_line(report_date, styles)])
+        story.extend([PageBreak(), Spacer(1, 0.1), flow_header(), Spacer(1, 7), legacy_date_line(report_date, styles)])
         story.extend(legacy_check_elements(row, audit, styles))
 
-    story.extend([PageBreak(), legacy_date_line(report_date, styles)])
+    story.extend([PageBreak(), Spacer(1, 0.1), flow_header(), Spacer(1, 7), legacy_date_line(report_date, styles)])
     story.extend(legacy_yard_elements(audit, styles))
     if sangfor_capture_path is not None:
         capture_path = Path(sangfor_capture_path)
@@ -1197,6 +1278,9 @@ def build_pdf(
         capture_image.hAlign = "CENTER"
         story.extend([
             PageBreak(),
+            Spacer(1, 0.1),
+            flow_header(),
+            Spacer(1, 7),
             legacy_date_line(report_date, styles),
             p("HCI Backup: All Up-to-Date", styles["title"]),
             p("หมายเหตุ - V-BOX ปิดระบบใช้งาน", styles["body"]),

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import base64
+import binascii
 import mimetypes
 import os
 import secrets
@@ -10,6 +13,7 @@ import threading
 import time
 import traceback
 import webbrowser
+from io import BytesIO
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,19 +22,20 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from http.cookies import SimpleCookie
 
 from build_backup_report import build_pdf
-from api_collector import (
-    collect_active_backup_csv,
-    collect_drive_sharesync,
-    cross_check_active_backup_api,
-)
+from csv_report import ACTIVE_BACKUP_DAILY_COLUMNS, BANGKOK, parse_uploaded_daily_csv
 from credential_store import protect_text, unprotect_text
 from auth_store import AuthStore
 from sangfor_capture import SangforCaptureError, capture_sangfor
-from synology_api import SynologyApiError, SynologyClient, probe_read_only
+from synology_web_capture import (
+    SynologyWebCaptureError,
+    download_daily_csv,
+)
+from yard_api import collect_drive_sharesync
+from PIL import Image as PILImage, UnidentifiedImageError
 
 
 APP_NAME = "Pylon Backup Report"
-APP_VERSION = "0.9.0-legacy-report-pattern"
+APP_VERSION = "0.14.3-task-list-order"
 SOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 PORTABLE_ROOT = Path(os.environ.get("BACKUP_REPORT_ROOT", "")) if os.environ.get("BACKUP_REPORT_ROOT") else (
     Path(sys.executable).resolve().parent
@@ -54,7 +59,7 @@ SESSIONS_LOCK = threading.Lock()
 
 
 DEFAULT_SETTINGS = {
-    "version": 4,
+    "version": 5,
     "primary": {
         "label": "NAS เครื่องหลัก - Active Backup",
         "url": "https://nas-primary.example.local:5001",
@@ -84,7 +89,6 @@ DEFAULT_SETTINGS = {
         "server_name": "BACKUP-SERVER",
         "alert_days": 7,
         "report_hour": 9,
-        "active_backup_csv_path": "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv",
     },
 }
 
@@ -130,7 +134,7 @@ def save_settings(payload: dict) -> dict:
         elif submitted.get("forget_password"):
             current[section]["password_encrypted"] = ""
     submitted_report = payload.get("report", {})
-    for key in ("server_name", "alert_days", "report_hour", "active_backup_csv_path"):
+    for key in ("server_name", "alert_days", "report_hour"):
         if key in submitted_report:
             current["report"][key] = submitted_report[key]
 
@@ -154,6 +158,47 @@ def public_settings(settings: dict) -> dict:
     return result
 
 
+def record_source_contract_alert(message: str, csv_path: str) -> Path:
+    """Persist a non-secret, de-duplicated source-contract warning."""
+    ensure_directories()
+    observed_at = datetime.now().astimezone()
+    digest = hashlib.sha256(message.encode("utf-8")).hexdigest()[:12]
+    expected_schema_fingerprint = hashlib.sha256(
+        ",".join(ACTIVE_BACKUP_DAILY_COLUMNS).encode("utf-8")
+    ).hexdigest()
+    output = LOG_ROOT / f"source_contract_{observed_at:%Y-%m-%d}_{digest}.json"
+    output.write_text(json.dumps({
+        "type": "active_backup_source_contract",
+        "observed_at": observed_at.isoformat(),
+        "configured_path": csv_path,
+        "message": message,
+        "observed_fingerprint": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+        "expected_schema_fingerprint": expected_schema_fingerprint,
+        "action": "final_report_blocked",
+        "nas_modified": False,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output
+
+
+def list_recent_source_alerts(days: int = 7) -> list[dict[str, str]]:
+    cutoff_date = (datetime.now() - timedelta(days=days - 1)).date()
+    alerts: list[dict[str, str]] = []
+    for item in sorted(LOG_ROOT.glob("source_contract_*.json"), reverse=True):
+        try:
+            payload = json.loads(item.read_text(encoding="utf-8"))
+            observed = datetime.fromisoformat(str(payload["observed_at"]))
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            continue
+        if observed.date() < cutoff_date:
+            continue
+        alerts.append({
+            "observed_at": observed.isoformat(),
+            "message": str(payload.get("message") or "-"),
+            "action": str(payload.get("action") or "final_report_blocked"),
+        })
+    return alerts
+
+
 def credentials_for(section: str, submitted: dict | None = None) -> tuple[dict, str]:
     settings = load_settings()
     config = settings[section]
@@ -169,138 +214,38 @@ def credentials_for(section: str, submitted: dict | None = None) -> tuple[dict, 
     return merged, password
 
 
-def active_backup_cross_check_or_warning(
-    client: SynologyClient,
-    rows: list[dict[str, str]],
-    report_date,
-) -> dict:
-    try:
-        return cross_check_active_backup_api(client, rows, report_date)
-    except (SynologyApiError, ValueError) as exc:
-        return {
-            "checked": False,
-            "consistent": False,
-            "warning_count": 1,
-            "warnings": [f"Active Backup API cross-check unavailable: {exc}"],
-            "csv_task_count": len(rows),
-            "api_task_count": None,
-            "matched_result_count": 0,
-            "api_result_count_today": None,
-            "latest_api_result_time": None,
-            "comparison_fields": ["Backup Task", "Status", "End"],
-            "authoritative_source": "abb_daily_result_latest.csv",
-        }
-
-
 def test_site(section: str, submitted: dict | None = None) -> dict:
+    """Test the production data path for the selected site."""
     config, password = credentials_for(section, submitted)
-    client = SynologyClient(
-        config["url"], verify_ssl=bool(config.get("verify_ssl", True))
-    )
-    expected = (
-        [
-            "SYNO.ActiveBackup.Task",
-            "SYNO.ActiveBackup.Log",
-            "SYNO.ActiveBackup.Report",
-            "SYNO.FileStation.List",
-            "SYNO.FileStation.Download",
-        ]
-        if config["profile"] == "active_backup"
-        else [
-            "SYNO.SynologyDriveShareSync.Connection",
-            "SYNO.SynologyDriveShareSync.Session",
-        ]
-    )
-    try:
-        client.login(config["username"], password)
-        discovered = client.discover(expected)
-        result = {
-            "ok": True,
-            "label": config["label"],
-            "url": config["url"],
-            "available_apis": sorted(discovered),
-            "security_warning": config["url"].lower().startswith("http://"),
-        }
-        if config["profile"] == "active_backup":
-            report_settings = load_settings()["report"]
-            rows, audit = collect_active_backup_csv(
-                client,
-                str(report_settings.get("active_backup_csv_path") or "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv"),
-                int(report_settings.get("report_hour", 9)),
-            )
-            cross_check = active_backup_cross_check_or_warning(
-                client, rows, audit["report_date"]
-            )
-            result.update({
-                "data_ready": True,
-                "row_count": len(rows),
-                "check_count": sum(row["Audit Status"].casefold() == "check" for row in rows),
-                "latest_result_time": audit["latest_result_time"].isoformat() if audit["latest_result_time"] else None,
-                "source_api": audit["source_api"],
-                "active_backup_cross_check": cross_check,
-            })
-        else:
-            cloud = collect_drive_sharesync(client)
-            result.update({
-                "data_ready": cloud["readiness"] == "ready",
-                "readiness": cloud["readiness"],
-                "connection_count": cloud["connection_count"],
-                "up_to_date_count": cloud["up_to_date_count"],
-                "healthy": cloud["healthy"],
-                "paused": cloud["paused"],
-                "tray_status": cloud["tray_status"],
-                "api_methods": cloud["api_methods"],
-            })
-        return result
-    finally:
-        client.logout()
-
-
-SENSITIVE_PARTS = (
-    "pass",
-    "token",
-    "secret",
-    "access_key",
-    "auth_key",
-    "sid",
-    "cookie",
-)
-
-
-def sanitize(value):
-    if isinstance(value, dict):
-        return {
-            key: "[REDACTED]"
-            if any(part in key.lower() for part in SENSITIVE_PARTS)
-            else sanitize(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [sanitize(item) for item in value]
-    return value
-
-
-def probe_site(section: str, submitted: dict | None = None) -> dict:
-    config, password = credentials_for(section, submitted)
-    client = SynologyClient(
-        config["url"], verify_ssl=bool(config.get("verify_ssl", True))
-    )
-    try:
-        client.login(config["username"], password)
-        result = probe_read_only(client, config["profile"])
-    finally:
-        client.logout()
-    safe = sanitize(result)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    output = LOG_ROOT / f"api_probe_{section}_{stamp}.json"
-    output.write_text(json.dumps(safe, ensure_ascii=False, indent=2), encoding="utf-8")
-    successes = [item for item in safe["calls"] if item.get("success")]
-    return {
-        "ok": True,
-        "file": str(output),
-        "successful_calls": [f"{item['api']}.{item['method']}" for item in successes],
-        "attempted_calls": len(safe["calls"]),
-    }
+    output_dir = CAPTURE_ROOT / f"test_{section}_{stamp}"
+    try:
+        if section == "primary":
+            report_date = datetime.now(BANGKOK).date()
+            result = download_daily_csv(config, password, report_date, output_dir)
+            rows, audit = parse_uploaded_daily_csv(
+                bytes(result["content"]), str(result["name"])
+            )
+            return {
+                "ok": True,
+                "capture_method": "primary_csv_via_file_station",
+                "filename": result["name"],
+                "row_count": len(rows),
+                "check_count": audit["check_count"],
+            }
+        elif section == "remote":
+            result = collect_drive_sharesync(config, password)
+            return {
+                "ok": True,
+                "capture_method": "yard_drive_sharesync_web_api",
+                "connection_count": int(result.get("connection_count") or 0),
+                "up_to_date_count": int(result.get("up_to_date_count") or 0),
+                "api_methods": result.get("api_methods") or [],
+            }
+        else:
+            raise ValueError("Unknown DSM section")
+    finally:
+        password = ""
 
 
 def test_sangfor(submitted: dict | None = None) -> dict:
@@ -314,6 +259,34 @@ def test_sangfor(submitted: dict | None = None) -> dict:
     result["name"] = output.name
     result["preview_url"] = f"/api/capture/{quote(output.name)}"
     return result
+
+
+def smoke_test_daily_csv(submitted: dict | None = None) -> dict:
+    """Live DSM smoke: download and parse today's CSV without generating a PDF."""
+    config, password = credentials_for("primary", submitted)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    output_dir = CAPTURE_ROOT / f"smoke_csv_{stamp}"
+    try:
+        downloaded = download_daily_csv(
+            config, password, datetime.now(BANGKOK).date(), output_dir
+        )
+        rows, audit = parse_uploaded_daily_csv(
+            bytes(downloaded["content"]),
+            str(downloaded["name"]),
+            int(load_settings()["report"].get("report_hour", 9)),
+        )
+    finally:
+        password = ""
+    return {
+        "ok": True,
+        "name": downloaded["name"],
+        "path": downloaded["path"],
+        "size": len(downloaded["content"]),
+        "sha256": audit["result_sha"],
+        "rows": len(rows),
+        "check_count": audit["check_count"],
+        "source_type": downloaded["source_type"],
+    }
 
 
 def build_daily_message(rows: list[dict[str, str]], audit: dict, sangfor_result: dict) -> str:
@@ -375,7 +348,11 @@ def build_daily_message(rows: list[dict[str, str]], audit: dict, sangfor_result:
         lines.append(f"หมายเหตุ : มี {len(check_rows)} Task ที่ต้องตรวจสอบ")
 
     for row in check_rows:
-        if row.get("Status") == "Successful" and str(row.get("Size") or "").strip() in {
+        audit_detail = row.get("_audit_detail") or {}
+        authoritative_finding = str(audit_detail.get("ผลตรวจสอบ") or "").strip()
+        if authoritative_finding:
+            finding = authoritative_finding
+        elif row.get("Status") == "Successful" and str(row.get("Size") or "").strip() in {
             "0 Bytes", "0 KB", "0.00 KB", "0 MB", "0.00 MB",
         }:
             finding = "Backup สำเร็จไม่มีไฟล์ใหม่"
@@ -433,35 +410,101 @@ def cleanup_old_reports(report_root: Path, days: int = 7) -> list[str]:
     return removed
 
 
+def resolve_active_backup_csv(
+    payload: dict,
+    primary_config: dict,
+    primary_password: str,
+    capture_dir: Path,
+    report_date=None,
+) -> tuple[str, bytes, str]:
+    """Use an optional manual CSV, otherwise download today's exact file via DSM UI."""
+    upload = payload.get("active_backup_csv") or {}
+    filename = Path(str(upload.get("name") or "")).name
+    encoded = str(upload.get("content_base64") or "")
+    if filename and encoded:
+        try:
+            content = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("ข้อมูลไฟล์ CSV ที่อัปโหลดไม่ถูกต้อง") from exc
+        return filename, content, "manual_upload"
+    if filename or encoded:
+        raise ValueError("ข้อมูลไฟล์ CSV ที่อัปโหลดไม่ครบถ้วน")
+
+    downloaded = download_daily_csv(
+        primary_config,
+        primary_password,
+        report_date or datetime.now(BANGKOK).date(),
+        capture_dir / "file_station",
+    )
+    return (
+        str(downloaded["name"]),
+        bytes(downloaded["content"]),
+        str(downloaded["source_type"]),
+    )
+
+
+def resolve_task_list_image(payload: dict, capture_dir: Path) -> Path | None:
+    """Validate and persist an optional operator-supplied Task List screenshot."""
+    upload = payload.get("task_list_image") or {}
+    filename = Path(str(upload.get("name") or "")).name
+    encoded = str(upload.get("content_base64") or "")
+    if not filename and not encoded:
+        return None
+    if not filename or not encoded:
+        raise ValueError("ข้อมูลภาพ Task List ที่อัปโหลดไม่ครบถ้วน")
+    if Path(filename).suffix.casefold() not in {".png", ".jpg", ".jpeg"}:
+        raise ValueError("ภาพ Task List ต้องเป็นไฟล์ PNG หรือ JPEG เท่านั้น")
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("ข้อมูลภาพ Task List ที่อัปโหลดไม่ถูกต้อง") from exc
+    if not content or len(content) > 12 * 1024 * 1024:
+        raise ValueError("ภาพ Task List ต้องมีขนาดไม่เกิน 12 MB")
+    try:
+        with PILImage.open(BytesIO(content)) as image:
+            image.verify()
+        with PILImage.open(BytesIO(content)) as image:
+            width, height = image.size
+            image_format = str(image.format or "").upper()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValueError("ไฟล์ที่เลือกไม่ใช่ภาพ PNG หรือ JPEG ที่สมบูรณ์") from exc
+    if image_format not in {"PNG", "JPEG"}:
+        raise ValueError("ภาพ Task List ต้องเป็นไฟล์ PNG หรือ JPEG เท่านั้น")
+    if width < 320 or height < 180 or width * height > 60_000_000:
+        raise ValueError("ขนาดพิกเซลของภาพ Task List ไม่เหมาะสม")
+    destination = capture_dir / f"task-list{'.png' if image_format == 'PNG' else '.jpg'}"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(content)
+    return destination
+
+
 def generate_report(payload: dict) -> dict:
     save_settings(payload)
     report_settings = load_settings()["report"]
     primary_config, primary_password = credentials_for("primary", payload.get("primary"))
     remote_config, remote_password = credentials_for("remote", payload.get("remote"))
-    primary = SynologyClient(primary_config["url"], verify_ssl=bool(primary_config.get("verify_ssl", True)), timeout=30)
-    remote = SynologyClient(remote_config["url"], verify_ssl=bool(remote_config.get("verify_ssl", True)), timeout=30)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    capture_dir = CAPTURE_ROOT / f"report_{stamp}"
+    task_list_image_path = resolve_task_list_image(payload, capture_dir)
+    filename, csv_content, source_mode = resolve_active_backup_csv(
+        payload, primary_config, primary_password, capture_dir
+    )
     try:
-        primary.login(primary_config["username"], primary_password)
-        rows, audit = collect_active_backup_csv(
-            primary,
-            str(report_settings.get("active_backup_csv_path") or "/ABB_Backup/ABB_Report/abb_daily_result_latest.csv"),
+        rows, audit = parse_uploaded_daily_csv(
+            csv_content,
+            filename,
             int(report_settings.get("report_hour", 9)),
         )
-        audit["active_backup_cross_check"] = active_backup_cross_check_or_warning(
-            primary, rows, audit["report_date"]
-        )
-        remote.login(remote_config["username"], remote_password)
-        audit["cloud_sync"] = collect_drive_sharesync(remote)
-        audit["cloud_sync"]["site_label"] = str(remote_config.get("label") or "Yard - Drive ShareSync")
+        audit["source_type"] = source_mode
+    except ValueError as exc:
+        alert_path = record_source_contract_alert(str(exc), filename)
+        raise ValueError(f"{exc} | บันทึกการแจ้งเตือน: {alert_path}") from exc
+
+    try:
+        yard_data = collect_drive_sharesync(remote_config, remote_password)
     finally:
-        primary.logout()
-        remote.logout()
         primary_password = remote_password = ""
-    audit.update({
-        "raw_sha": "direct-api",
-        "raw_path": Path("Drive ShareSync Web API"),
-    })
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    audit["cloud_sync"] = yard_data
     sangfor_capture_path = None
     sangfor_result = {"enabled": False}
     sangfor_settings = load_settings()["sangfor"]
@@ -481,6 +524,7 @@ def generate_report(payload: dict) -> dict:
         audit,
         server_name=str(report_settings.get("server_name") or "BACKUP-SERVER"),
         sangfor_capture_path=sangfor_capture_path,
+        task_list_image_path=task_list_image_path,
     )
     daily_summary = build_daily_message(rows, audit, sangfor_result)
     summary_output = output.with_suffix(".txt")
@@ -493,8 +537,13 @@ def generate_report(payload: dict) -> dict:
         "data_cutoff": audit["data_cutoff"].isoformat(),
         "latest_result_time": audit["latest_result_time"].isoformat() if audit["latest_result_time"] else None,
         "is_final_window": audit["is_final_window"],
-        "active_backup_cross_check": audit["active_backup_cross_check"],
-        "cloud_sync": audit["cloud_sync"], "sangfor": sangfor_result,
+        "active_backup_source": audit["result_path"],
+        "active_backup_source_mode": source_mode,
+        "used_dated_fallback": audit["used_dated_fallback"],
+        "capture_method": "Primary NAS CSV via DSM File Station",
+        "task_list_image_attached": task_list_image_path is not None,
+        "yard_capture": None,
+        "sangfor": sangfor_result,
         "daily_summary": daily_summary,
         "summary_name": summary_output.name,
         "summary_path": str(summary_output),
@@ -627,7 +676,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "settings": public_settings(load_settings())})
         if path == "/api/reports":
             reports = list_recent_reports(REPORT_ROOT, days=7)
-            return self._json({"ok": True, "days": 7, "reports": reports})
+            alerts = list_recent_source_alerts(days=7)
+            return self._json({"ok": True, "days": 7, "reports": reports, "source_alerts": alerts})
         if path.startswith("/api/report/"):
             filename = Path(unquote(path.removeprefix("/api/report/"))).name
             download = parse_qs(parsed.query).get("download", [""])[0] == "1"
@@ -727,13 +777,10 @@ class AppHandler(BaseHTTPRequestHandler):
                     except Exception as exc:
                         results[section] = {"ok": False, "error": str(exc)}
                 return self._json({"ok": all(v["ok"] for v in results.values()), "results": results})
-            if parsed.path == "/api/probe":
-                section = payload.get("section")
-                if section not in ("primary", "remote"):
-                    raise ValueError("Unknown NAS section")
-                return self._json(probe_site(section, payload.get(section)))
             if parsed.path == "/api/test-sangfor":
                 return self._json(test_sangfor(payload.get("sangfor")))
+            if parsed.path == "/api/smoke-csv":
+                return self._json(smoke_test_daily_csv(payload.get("primary")))
             if parsed.path == "/api/generate":
                 return self._json(generate_report(payload))
             if parsed.path == "/api/delete-report":
@@ -752,7 +799,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             return self.send_error(HTTPStatus.NOT_FOUND)
-        except (ValueError, SynologyApiError, SangforCaptureError, OSError, json.JSONDecodeError) as exc:
+        except (ValueError, SynologyWebCaptureError, SangforCaptureError, OSError, json.JSONDecodeError) as exc:
             return self._error(exc)
         except Exception as exc:
             return self._error(exc, 500)
