@@ -14,7 +14,7 @@
       <div>
         <span class="eyebrow">PYLON IT OPERATIONS</span>
         <h1>Pylon Backup Report</h1>
-        <p>ดึงข้อมูลจาก Synology NAS, Drive ShareSync และ Sangfor aCloud เพื่อสร้างรายงาน PDF</p>
+        <p>ใช้ CSV ที่ผู้ใช้เลือก และ Capture หน้า DSM/Sangfor ผ่าน Chromium เพื่อสร้างรายงาน PDF</p>
       </div>
     </div>
     <div class="top-actions">
@@ -31,14 +31,14 @@
         <div class="card-head">
           <div>
             <span class="step">SITE 01</span>
-            <h2>Active Backup</h2>
+            <h2>Active Backup Web Capture</h2>
           </div>
           <span id="primaryStatus" class="status idle">ยังไม่ทดสอบ</span>
         </div>
         <label>ชื่อ Site<input id="primaryLabel" autocomplete="off"></label>
         <label>DSM URL<input id="primaryUrl" type="url" autocomplete="off"></label>
         <div class="credential-toolbar row between">
-          <span class="hint">บัญชีสำหรับเชื่อมต่อ NAS</span>
+          <span class="hint">บัญชีสำหรับ Login หน้าเว็บ DSM เพื่อ Capture เท่านั้น</span>
           <button class="button ghost compact-button credential-toggle" data-site="primary" type="button" hidden>แสดง/แก้ไขบัญชี</button>
         </div>
         <div id="primaryCredentials" class="grid two compact credential-fields">
@@ -50,8 +50,7 @@
           <span id="primarySaved" class="saved"></span>
         </div>
         <div class="button-row">
-          <button class="button secondary test-button" data-site="primary">ทดสอบ</button>
-          <button class="button ghost probe-button" data-site="primary">ตรวจ API แบบอ่านอย่างเดียว</button>
+          <button class="button secondary test-button" data-site="primary">ทดสอบ Login และ Capture</button>
         </div>
       </article>
 
@@ -66,7 +65,7 @@
         <label>ชื่อ Site<input id="remoteLabel" autocomplete="off"></label>
         <label>DSM URL<input id="remoteUrl" type="url" autocomplete="off"></label>
         <div class="credential-toolbar row between">
-          <span class="hint">บัญชีสำหรับเชื่อมต่อ NAS</span>
+          <span class="hint">บัญชีสำหรับ Login หน้าเว็บ DSM เพื่อ Capture เท่านั้น</span>
           <button class="button ghost compact-button credential-toggle" data-site="remote" type="button" hidden>แสดง/แก้ไขบัญชี</button>
         </div>
         <div id="remoteCredentials" class="grid two compact credential-fields">
@@ -78,8 +77,7 @@
           <span id="remoteSaved" class="saved"></span>
         </div>
         <div class="button-row">
-          <button class="button secondary test-button" data-site="remote">ทดสอบ</button>
-          <button class="button ghost probe-button" data-site="remote">ตรวจ API แบบอ่านอย่างเดียว</button>
+          <button class="button secondary test-button" data-site="remote">ทดสอบ Login และ Capture</button>
         </div>
       </article>
     </section>
@@ -132,15 +130,37 @@
         <button class="tab-button" data-tab="history" role="tab" aria-selected="false">ประวัติย้อนหลัง 7 วัน</button>
       </div>
       <div id="tabCreate" class="tab-panel active" role="tabpanel">
+        <label>ไฟล์ CSV สำรอง (เลือกเฉพาะเมื่อดาวน์โหลดอัตโนมัติไม่ได้)
+          <input id="activeBackupCsv" type="file" accept=".csv,text/csv">
+        </label>
+        <p class="hint">ปกติโปรแกรมจะ Login หน้า File Station ผ่าน Chromium และดาวน์โหลด abb_daily_result_YYYY-MM-DD.csv ของวันนี้โดยอัตโนมัติ โดยไม่เรียก NAS API หากเลือกไฟล์ด้านบน ระบบจะใช้ไฟล์ที่เลือกแทน</p>
+        <div id="taskListPasteZone" class="paste-zone" tabindex="0" role="group" aria-label="วางภาพ Task List จาก Clipboard">
+          <div class="paste-zone-copy">
+            <strong>ภาพ Task List จาก Active Backup (ไม่บังคับ)</strong>
+            <span>Capture หน้าจอ แล้วกลับมาหน้านี้และกด Ctrl+V เพื่อวางภาพ</span>
+          </div>
+          <label class="paste-file-button">หรือเลือกไฟล์
+            <input id="taskListImage" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg">
+          </label>
+          <div id="taskListPreviewPanel" class="paste-preview" hidden>
+            <img id="taskListPreview" alt="ตัวอย่างภาพ Task List ที่จะแนบในรายงาน">
+            <div class="paste-preview-meta">
+              <span id="taskListImageStatus"></span>
+              <button id="clearTaskListImage" class="button danger compact-button" type="button">ล้างภาพ</button>
+            </div>
+          </div>
+        </div>
+        <p class="hint">ภาพจะอยู่เหนือข้อมูล CSV ในหน้าแรก รองรับ PNG/JPEG ไม่เกิน 12 MB; หากไม่วางหรือเลือกภาพ รายงานยังสร้างได้ตามปกติ</p>
         <div class="grid two compact">
           <label>ชื่อ Server ในรายงาน<input id="serverName"></label>
           <label>จำนวนวันประวัติสำหรับเปรียบเทียบ<input id="alertDays" type="number" min="3" max="30"></label>
           <label>เวลาปิดรอบรายงานประจำวัน (ตามนโยบาย)<input id="reportHour" type="number" min="0" max="23" readonly></label>
         </div>
-        <p class="hint">รอบใช้งานจริงปิดเวลา 09:00 น. ระบบอ่านผลของวันนั้นตั้งแต่ 00:00-09:00 จาก NAS API โดยตรง งานที่ไม่มีผลภายในรอบจะแสดงเป็น Check และจะไม่ใช้ผลเก่ามาแทน</p>
+        <p class="hint">รอบใช้งานจริงปิดเวลา 09:00 น. ค่าตารางทั้งหมดมาจาก CSV ที่เลือก ส่วน Audit และ Yard ใช้ภาพ Capture จากหน้าเว็บ DSM เท่านั้น</p>
         <div class="button-row prominent">
           <button id="saveSettings" class="button secondary">บันทึกการตั้งค่าและรหัสผ่าน</button>
-          <button id="testAll" class="button secondary">ทดสอบ NAS ทั้งสองแห่ง</button>
+          <button id="testAll" class="button secondary">ทดสอบ Web Capture ทั้งสองแห่ง</button>
+          <button id="smokeCsv" class="button secondary">ทดสอบดึง CSV อัตโนมัติ</button>
           <button id="generateReport" class="button primary">สร้างรายงาน PDF</button>
         </div>
         <div id="dailySummaryBox" class="daily-summary" hidden>
@@ -172,7 +192,7 @@
 
     <section class="card">
       <div class="card-head">
-        <div><span class="step">API MAPPING</span><h2>ผลการตรวจ Web API</h2></div>
+        <div><span class="step">PROCESS</span><h2>ผลการอ่าน CSV และ Web Capture</h2></div>
       </div>
       <div id="resultPanel" class="result-panel empty">ยังไม่มีผลการทำงาน</div>
     </section>

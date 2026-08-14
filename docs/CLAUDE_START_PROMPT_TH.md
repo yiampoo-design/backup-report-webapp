@@ -35,7 +35,7 @@ credential ใด ๆ
 - ความเข้าใจ requirement โดยไม่เติม business rule เอง
 - รายการไฟล์ที่จะเปลี่ยน
 - ผลกระทบต่อ authoritative CSV, ลำดับหน้า PDF และ production
-- วิธีทดสอบ รวมถึงวิธี render/ตรวจทุกหน้าและเทียบ Start/End กับ CSV
+- วิธีทดสอบ รวมถึงวิธี render/ตรวจทุกหน้า เทียบ Last Backup กับ Start และยืนยันว่าไม่มี End
 
 ให้สร้าง branch ใหม่ก่อนแก้ ห้ามใช้ credential จริงหรือเชื่อม production จนกว่า
 ฉันจะอนุญาตโดยชัดเจน หาก requirement คลุมเครือให้ถามก่อน ห้ามเดา

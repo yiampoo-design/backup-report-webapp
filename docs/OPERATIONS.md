@@ -13,13 +13,17 @@
 - The final daily window is 00:00-09:00 Asia/Bangkok for the current calendar date.
 - A report generated before 09:00 is explicitly labelled `Pre-09:00 draft`; its cutoff is the actual collection time.
 - A report generated after 09:00 keeps the 09:00 cutoff so the report is reproducible for the scheduled delivery.
-- Active Backup rows, ordering, timestamps and audit fields come from the latest
-  NAS-generated `abb_daily_result_latest.csv`. The app must not synthesize a
-  missing row or recalculate its status.
-- Active Backup API results are supplemental cross-checks only. A discrepancy is
-  displayed as a warning and never replaces the CSV value.
-- File, SQL and VM Backup rows present in the CSV are included in their existing
-  CSV order.
+- Active Backup rows, timestamps and audit fields come only from the
+  NAS-generated `abb_daily_result_YYYY-MM-DD.csv` matching the report date.
+  The appended `AUDIT` blocks are the evidence source. The app must not use a
+  previous date, synthesize a missing row or reconstruct an `End` time.
+- No Active Backup API call is allowed. Yard Drive ShareSync is the only NAS API
+  scope and never replaces any primary-NAS CSV value.
+- Rows are displayed in the approved DSM Task List order and `No.` is
+  renumbered. All other values remain unchanged. Unknown tasks append in their
+  original CSV order.
+- The optional Task List image is pasted or selected by the operator. It is
+  presentation evidence only and is never OCRed or used to overwrite CSV data.
 
 ## Sangfor capture order
 

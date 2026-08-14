@@ -1,17 +1,20 @@
 const token = new URLSearchParams(location.search).get("token") || "";
 let csrfToken = "";
 let webUsername = "";
+let taskListClipboardFile = null;
+let taskListPreviewUrl = "";
 const headers = {"Content-Type":"application/json", "X-App-Token":token};
 const $ = id => document.getElementById(id);
 
 async function api(path, options={}) {
-  const response = await fetch(path, {...options, headers:{...headers, ...(csrfToken?{"X-CSRF-Token":csrfToken}:{}), ...(options.headers||{})}});
+  const {allowErrorPayload=false, ...fetchOptions} = options;
+  const response = await fetch(path, {...fetchOptions, headers:{...headers, ...(csrfToken?{"X-CSRF-Token":csrfToken}:{}), ...(fetchOptions.headers||{})}});
   const payload = await response.json();
   if (response.status === 401 && payload.login_required) {
     location.replace("/login");
     throw new Error("กรุณาเข้าสู่ระบบ");
   }
-  if (!response.ok || payload.ok === false) throw new Error(payload.error || "เกิดข้อผิดพลาด");
+  if (!response.ok || (payload.ok === false && !allowErrorPayload)) throw new Error(payload.error || "เกิดข้อผิดพลาด");
   return payload;
 }
 
@@ -161,41 +164,30 @@ async function testSangfor() {
 }
 
 async function testSites(sites) {
-  sites.forEach(s=>setStatus(s,"กำลังเชื่อมต่อ","busy"));
+  return testWebCaptureSites(sites);
+}
+
+async function testWebCaptureSites(sites) {
+  sites.forEach(s=>setStatus(s,"กำลัง Login และ Capture","busy"));
   try {
     const payload={sites}; sites.forEach(s=>payload[s]=sitePayload(s));
-    const response=await api("/api/test",{method:"POST",body:JSON.stringify(payload)});
+    const response=await api("/api/test",{method:"POST",body:JSON.stringify(payload),allowErrorPayload:true});
+    const lines=[];
     for (const site of sites) {
       const item=response.results[site];
       if (!item.ok) {
-        setStatus(site,"เชื่อมต่อไม่สำเร็จ","bad");
-      } else if (site === "remote" && item.data_ready === false) {
-        const warningText=item.readiness === "no_connections"
-          ? "ShareSync - พบ 0 โฟลเดอร์"
-          : item.readiness === "paused"
-            ? "ShareSync - งานถูกพัก"
-            : "ShareSync - ต้องตรวจสอบ";
-        setStatus(site,warningText,"warn");
-      } else if (site === "primary" && item.active_backup_cross_check && !item.active_backup_cross_check.consistent) {
-        setStatus(site,`CSV พร้อมใช้ / API ต่าง ${item.active_backup_cross_check.warning_count} รายการ`,"warn");
+        setStatus(site,"Web Capture ไม่สำเร็จ","bad");
+        lines.push(`${site}: ${item.error}`);
       } else {
-        setStatus(site,site === "remote"?`ShareSync ${item.up_to_date_count}/${item.connection_count} Up to date`:`NAS CSV ${item.row_count} rows / API ตรงกัน`,"ok");
+        setStatus(site,"Web Capture สำเร็จ","ok");
+        lines.push(`${site}: Chromium Login และ Capture สำเร็จ\nภาพ: ${item.path}`);
       }
     }
-    const lines=Object.entries(response.results).map(([site,item])=>item.ok
-      ? `${item.label}: OK\nAPI: ${item.available_apis.join(", ")}${site === "remote"?`\nDrive ShareSync folders: ${item.connection_count}\nUp to date: ${item.up_to_date_count}\nOverall status: ${item.tray_status}${item.data_ready?"":"\nคำเตือน: มีรายการ Drive ShareSync ที่ต้องตรวจสอบ"}`:`\nNAS CSV rows: ${item.row_count}\nCheck from CSV: ${item.check_count}\nAPI cross-check: ${item.active_backup_cross_check.consistent?"MATCHED":`WARNING ${item.active_backup_cross_check.warning_count}`}\n${(item.active_backup_cross_check.warnings||[]).join("\n")}`}${item.security_warning?"\nคำเตือน: URL ยังเป็น HTTP":""}`
-      : `${site}: ${item.error}`);
     result(lines.join("\n\n"),response.ok);
-  } catch(e) { sites.forEach(s=>setStatus(s,"เชื่อมต่อไม่สำเร็จ","bad")); result(e.message,false); }
-}
-
-async function probe(site) {
-  setStatus(site,"กำลังตรวจ API","busy");
-  try {
-    const response=await api("/api/probe",{method:"POST",body:JSON.stringify({section:site,[site]:sitePayload(site)})});
-    setStatus(site,"ตรวจ API สำเร็จ","ok");
-    result(`บันทึกผลตรวจแล้ว: ${response.file}\nพบ Method ที่ตอบกลับ: ${response.successful_calls.join(", ")||"ยังไม่พบ"}\nทดลองทั้งหมด ${response.attempted_calls} รายการ`);
-  } catch(e) { setStatus(site,"ตรวจ API ไม่สำเร็จ","bad"); result(e.message,false); }
+  } catch(e) {
+    sites.forEach(s=>setStatus(s,"Web Capture ไม่สำเร็จ","bad"));
+    result(e.message,false);
+  }
 }
 
 function downloadReport(url, filename) {
@@ -242,23 +234,99 @@ async function copyDailySummary() {
 }
 
 async function generateReport() {
-  const button=$("generateReport"); button.disabled=true;
-  setStatus("report","กำลังดึงข้อมูลจาก NAS","busy");
-  result("กำลังอ่าน Active Backup และ Drive ShareSync ผ่าน Web API แล้วสร้าง PDF...");
+  return generateBrowserCaptureReport();
+}
+
+async function smokeCsv() {
+  const button=$("smokeCsv"); button.disabled=true;
+  setStatus("report","กำลัง Smoke Test CSV","busy");
+  result("กำลัง Login File Station, ดาวน์โหลด และตรวจ CSV ของวันนี้...");
   try {
-    const response=await api("/api/generate",{method:"POST",body:JSON.stringify(allSettings())});
+    const response=await api("/api/smoke-csv",{method:"POST",body:JSON.stringify({primary:sitePayload("primary")})});
+    setStatus("report","Smoke Test CSV สำเร็จ","ok");
+    result(`Smoke Test CSV ผ่าน\nชื่อไฟล์: ${response.name}\nขนาด: ${formatBytes(response.size)}\nSHA-256: ${response.sha256}\nรายการ: ${response.rows}\nCheck: ${response.check_count}\nแหล่ง: ${response.source_type}`);
+  } catch(e) {
+    setStatus("report","Smoke Test CSV ไม่สำเร็จ","bad");
+    result(e.message,false);
+  } finally { button.disabled=false; }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error("ไม่สามารถอ่านไฟล์ที่เลือกได้"));
+    reader.onload=()=>resolve(String(reader.result).split(",",2)[1]||"");
+    reader.readAsDataURL(file);
+  });
+}
+
+function clearTaskListImage() {
+  taskListClipboardFile=null;
+  $("taskListImage").value="";
+  if (taskListPreviewUrl) URL.revokeObjectURL(taskListPreviewUrl);
+  taskListPreviewUrl="";
+  $("taskListPreview").removeAttribute("src");
+  $("taskListPreviewPanel").hidden=true;
+  $("taskListPasteZone").classList.remove("has-image");
+}
+
+function setTaskListImage(file, source) {
+  if (!file || !/^image\/(png|jpeg)$/i.test(file.type)) {
+    result("ภาพ Task List ต้องเป็น PNG หรือ JPEG เท่านั้น",false);
+    return false;
+  }
+  if (file.size > 12*1024*1024) {
+    result("ภาพ Task List ต้องมีขนาดไม่เกิน 12 MB",false);
+    return false;
+  }
+  taskListClipboardFile=file;
+  if (taskListPreviewUrl) URL.revokeObjectURL(taskListPreviewUrl);
+  taskListPreviewUrl=URL.createObjectURL(file);
+  $("taskListPreview").src=taskListPreviewUrl;
+  $("taskListImageStatus").textContent=`${source}: ${file.name} (${formatBytes(file.size)})`;
+  $("taskListPreviewPanel").hidden=false;
+  $("taskListPasteZone").classList.add("has-image");
+  toast("รับภาพ Task List แล้ว");
+  return true;
+}
+
+function pasteTaskListImage(event) {
+  const item=Array.from(event.clipboardData?.items||[]).find(entry=>entry.kind==="file" && /^image\/(png|jpeg)$/i.test(entry.type));
+  if (!item) return;
+  const blob=item.getAsFile();
+  if (!blob) return;
+  event.preventDefault();
+  const extension=blob.type.toLowerCase()==="image/jpeg"?"jpg":"png";
+  setTaskListImage(new File([blob],`task-list-clipboard.${extension}`,{type:blob.type,lastModified:Date.now()}),"วางจาก Clipboard");
+}
+
+async function generateBrowserCaptureReport() {
+  const button=$("generateReport");
+  const file=$("activeBackupCsv").files[0];
+  const taskListImage=taskListClipboardFile || $("taskListImage").files[0];
+  if (file && !/^abb_daily_result_\d{4}-\d{2}-\d{2}\.csv$/i.test(file.name)) {
+    result("ชื่อไฟล์ต้องเป็น abb_daily_result_YYYY-MM-DD.csv เท่านั้น",false);
+    return;
+  }
+  button.disabled=true;
+  setStatus("report","กำลังอ่าน CSV และ Capture หน้าเว็บ","busy");
+  result("กำลังตรวจ CSV, Capture Active Backup Audit, Yard และ Sangfor ผ่าน Chromium...");
+  try {
+    const payload=allSettings();
+    if (file) payload.active_backup_csv={name:file.name,content_base64:await fileToBase64(file)};
+    if (taskListImage) payload.task_list_image={name:taskListImage.name,content_base64:await fileToBase64(taskListImage)};
+    const response=await api("/api/generate",{method:"POST",body:JSON.stringify(payload)});
     setStatus("report","สร้างรายงานสำเร็จ","ok");
-    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดไฟล์แล้ว\nรอบข้อมูลถึง: ${response.data_cutoff}\nผล Active Backup ล่าสุดจาก NAS: ${response.latest_result_time||"ไม่พบในรอบ"}\nสถานะรายงาน: ${response.is_final_window?"รอบ 09:00 สมบูรณ์":"ฉบับก่อน 09:00"}\nรายการ Active Backup: ${response.rows}\nงานไม่มีผลในรอบ: ${response.missing_task_count}\nสถานะ Check จาก NAS: ${response.check_count}\nYard Drive ShareSync: ${response.cloud_sync.up_to_date_count}/${response.cloud_sync.connection_count} Up to date\nYard logs: ${(response.cloud_sync.logs||[]).length}\nSangfor capture: ${response.sangfor.enabled?("แนบแล้ว; Latest Backup "+(response.sangfor.sort_verified?"เรียงล่าสุดไปเก่าสุด":"ยังไม่ยืนยัน")):"ไม่ได้เปิดใช้"}\nไฟล์: ${response.path}`);
-    const abbCheck=response.active_backup_cross_check;
-    if (abbCheck && !abbCheck.consistent) {
-      result(`สร้าง PDF จาก CSV สำเร็จ แต่ Active Backup API พบความแตกต่าง ${abbCheck.warning_count} รายการ\nCSV ยังคงเป็นข้อมูลหลักและไม่ได้ถูกแก้ทับ\n${(abbCheck.warnings||[]).join("\n")}`,false);
-    }
+    result(`สร้างรายงานสำเร็จและเริ่มดาวน์โหลดแล้ว\nCSV: ${response.active_backup_source}\nแหล่ง CSV: ${response.active_backup_source_mode}\nภาพ Task List: ${response.task_list_image_attached?"แนบแล้ว":"ไม่ได้แนบ"}\nรายการ: ${response.rows}\nCheck: ${response.check_count}\nวิธีเก็บหลักฐาน: ${response.capture_method}\nไฟล์: ${response.path}`);
     showDailySummary(response);
     downloadReport(`${response.url}?token=${encodeURIComponent(token)}&download=1`,response.name);
     loadReportHistory();
   } catch(e) {
-    setStatus("report","สร้างรายงานไม่สำเร็จ","bad"); result(e.message,false);
-  } finally { button.disabled=false; }
+    setStatus("report","สร้างรายงานไม่สำเร็จ","bad");
+    result(e.message,false);
+  } finally {
+    button.disabled=false;
+  }
 }
 
 function formatBytes(bytes) {
@@ -291,9 +359,17 @@ async function loadReportHistory() {
   list.replaceChildren(Object.assign(document.createElement("div"),{className:"history-empty",textContent:"กำลังโหลดประวัติ..."}));
   try {
     const response=await api("/api/reports");
-    $("historySummary").textContent=`พบ ${response.reports.length} รายงานภายใน ${response.days} วัน`;
+    const alerts=response.source_alerts||[];
+    $("historySummary").textContent=`พบ ${response.reports.length} รายงาน และการแจ้งเตือนกติกาต้นทาง ${alerts.length} รายการ ภายใน ${response.days} วัน`;
     list.replaceChildren();
-    if (!response.reports.length) {
+    for (const alert of alerts) {
+      const item=document.createElement("div"); item.className="report-item source-contract-alert";
+      const title=document.createElement("strong"); title.textContent="หยุดสร้างรายงาน: กติกาข้อมูลต้นทางเปลี่ยนหรือไฟล์ประจำวันไม่พร้อม";
+      const time=document.createElement("small"); time.textContent=new Date(alert.observed_at).toLocaleString("th-TH");
+      const message=document.createElement("pre"); message.textContent=alert.message;
+      item.append(title,time,message); list.append(item);
+    }
+    if (!response.reports.length && !alerts.length) {
       list.append(Object.assign(document.createElement("div"),{className:"history-empty",textContent:"ยังไม่มีรายงานในช่วง 7 วันที่ผ่านมา"}));
       return;
     }
@@ -348,11 +424,17 @@ function selectTab(name) {
 }
 
 document.querySelectorAll(".test-button").forEach(b=>b.addEventListener("click",()=>testSites([b.dataset.site])));
-document.querySelectorAll(".probe-button").forEach(b=>b.addEventListener("click",()=>probe(b.dataset.site)));
 document.querySelectorAll(".credential-toggle").forEach(b=>b.addEventListener("click",()=>toggleCredentialPanel(b.dataset.site)));
 $("saveSettings").addEventListener("click",saveSettings);
 $("testAll").addEventListener("click",()=>testSites(["primary","remote"]));
+$("smokeCsv").addEventListener("click",smokeCsv);
 $("generateReport").addEventListener("click",generateReport);
+$("taskListImage").addEventListener("change",event=>{
+  const file=event.target.files[0];
+  if (file && !setTaskListImage(file,"เลือกไฟล์")) event.target.value="";
+});
+$("clearTaskListImage").addEventListener("click",clearTaskListImage);
+document.addEventListener("paste",pasteTaskListImage);
 $("copyDailySummary").addEventListener("click",copyDailySummary);
 $("testSangfor").addEventListener("click",testSangfor);
 document.querySelectorAll(".tab-button").forEach(button=>button.addEventListener("click",()=>selectTab(button.dataset.tab)));

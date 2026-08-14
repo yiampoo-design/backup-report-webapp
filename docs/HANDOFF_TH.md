@@ -16,7 +16,8 @@ Pylon Backup Report เป็นเว็บแอป Python ภายในอ�
 
 - `app.py` — HTTP server, login/session, settings, report history และ orchestration
 - `synology_api.py` — DSM login, API discovery และ authenticated requests
-- `api_collector.py` — ดาวน์โหลด/อ่าน CSV หลักและ normalize ข้อมูลจาก NAS APIs
+- `csv_report.py` — ตรวจสอบและอ่าน CSV หลักโดยไม่เรียก NAS API
+- `yard_api.py` — อ่าน Drive ShareSync API เฉพาะ NAS Yard
 - `sangfor_capture.py` — login และ capture Sangfor ด้วย Chromium
 - `build_backup_report.py` — สร้าง PDF ด้วย ReportLab
 - `web/` — หน้าเว็บและ JavaScript
@@ -27,8 +28,8 @@ Pylon Backup Report เป็นเว็บแอป Python ภายในอ�
 ```text
 ผู้ใช้กดสร้างรายงาน
   -> โหลด settings/credentials ที่บันทึกบน server
-  -> NAS หลัก: ดาวน์โหลด abb_daily_result_latest.csv (authoritative)
-  -> NAS หลัก: อ่าน Active Backup API เพื่อข้อมูลประกอบ/ตรวจเทียบ
+  -> NAS หลัก: ดาวน์โหลด abb_daily_result_YYYY-MM-DD.csv ที่ตรงกับวันรายงานเท่านั้น (authoritative)
+  -> NAS หลัก: ห้ามใช้ API; อ่าน CSV ผ่าน File Station UI และใช้ส่วน AUDIT ท้าย CSV
   -> NAS Yard: อ่าน Drive ShareSync connections และ sessions
   -> Sangfor: login, sort Latest Backup, capture
   -> สร้าง PDF ตาม docs/REPORT_SPEC.md
@@ -38,9 +39,13 @@ Pylon Backup Report เป็นเว็บแอป Python ภายในอ�
 
 ## กติกาที่ห้ามเปลี่ยนโดยพลการ
 
-- CSV จาก NAS คือข้อมูลจริงของรายงาน Active Backup
+- CSV จาก NAS คือข้อมูลจริงของรายงาน Active Backup โดยใช้เฉพาะไฟล์
+  `abb_daily_result_YYYY-MM-DD.csv` ที่ตรงกับวันรายงาน ห้ามใช้ `latest`
+  หรือไฟล์วันก่อน
 - ห้ามคำนวณ `Same Size`, `Audit Same Size`, `Audit Status`, `Start`, `End` ใหม่
-- API ใช้เสริมและแจ้งความต่างเท่านั้น ห้ามเขียนทับ CSV
+- จัดลำดับแถวตาม Task List ที่อนุมัติและสร้างเลข `No.` ใหม่เพื่อการแสดงผลเท่านั้น
+  ค่าอื่นทุกช่องต้องคงตาม CSV และ Task ที่ไม่รู้จักให้ต่อท้ายตามลำดับเดิมใน CSV
+- API อนุญาตเฉพาะ NAS Yard Drive ShareSync และห้ามใช้กับ NAS หลัก
 - ห้ามเพิ่มหน้า PDF หรือเปลี่ยนลำดับหน้าโดยไม่มีการยืนยันจากเจ้าของระบบ
 - รายงานเก่าหกไฟล์เป็นแม่แบบที่หัวหน้าอนุมัติ แต่ไม่เก็บใน Git เพราะมีข้อมูลบริษัท
 - หากต้องแก้ layout ให้ขอไฟล์แม่แบบจากเจ้าของระบบแล้ว render เทียบทุกหน้า
@@ -67,12 +72,12 @@ journalctl -u backup-report -n 100 --no-pager -o cat
 
 ## สถานะ ณ วันที่ส่งมอบ
 
-- รุ่นปัจจุบัน: `0.9.0-legacy-report-pattern`
-- โครงรายงานถูกปรับตาม PDF เก่าหกฉบับแล้ว
-- QA ล่าสุดใช้ 17 รายการ, 2 รายการ Check, 10 โฟลเดอร์ Yard
-- ตรวจพบและเทียบค่า Start/End จาก CSV ใน PDF ครบทั้ง 34 ค่า
-- การ QA ในเครื่องพัฒนาไม่มี credentials จริงของ Sangfor จึงใช้ภาพหน้า login
-  เป็น placeholder; production ใช้ credentials ที่บันทึกบน server
+- รุ่นปัจจุบัน: `0.14.3-task-list-order`
+- หัวหน้าอนุมัติผลลัพธ์ปัจจุบันแล้วเมื่อ 14 สิงหาคม 2569 และไม่ให้เปลี่ยนรูปแบบ
+  โดยพลการ รายละเอียด baseline อยู่ใน `APPROVED_BASELINE_V0.14.3.md`
+- หน้าแรกแนบภาพ Task List จาก Clipboard/ไฟล์ได้ แล้วแสดงตาราง 14 คอลัมน์
+- หน้า Audit สร้างจากส่วน `AUDIT` ท้าย CSV เดียวกัน ไม่ Capture จาก Active Backup
+- ตรวจค่า Last Backup จาก CSV กับ Start ใน PDF และยืนยันว่าไม่มีการสร้าง End
 
 ## ขั้นตอนรับงานด้วย Claude Code
 

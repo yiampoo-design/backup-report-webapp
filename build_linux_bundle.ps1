@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $OutputRoot = Join-Path $ProjectRoot "output\linux"
-$BundleName = "PylonBackupReport-v0.9.0-linux"
+$BundleName = "PylonBackupReport-v0.14.3-linux"
 $Stage = Join-Path $OutputRoot $BundleName
 $AppStage = Join-Path $Stage "app"
 
@@ -11,7 +11,7 @@ if (Test-Path -LiteralPath $Stage) {
 }
 New-Item -ItemType Directory -Path $AppStage -Force | Out-Null
 
-foreach ($File in @("app.py", "api_collector.py", "auth_store.py", "build_backup_report.py", "credential_store.py", "sangfor_capture.py", "synology_api.py")) {
+foreach ($File in @("app.py", "csv_report.py", "auth_store.py", "build_backup_report.py", "credential_store.py", "sangfor_capture.py", "synology_web_capture.py", "synology_api.py", "yard_api.py")) {
     Copy-Item -LiteralPath (Join-Path $ProjectRoot $File) -Destination $AppStage
 }
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "web") -Destination $AppStage -Recurse

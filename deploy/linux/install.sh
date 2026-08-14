@@ -15,6 +15,10 @@ install -d -o root -g backup-report -m 0750 /opt/backup-report/app /etc/backup-r
 install -d -o backup-report -g backup-report -m 0750 /var/lib/backup-report/data /var/lib/backup-report/reports /var/lib/backup-report/logs /var/lib/backup-report/captures
 install -d -o backup-report -g backup-report -m 0700 /var/lib/backup-report/runtime
 
+# Remove only the two obsolete direct-NAS-API runtime modules left by releases
+# before 0.11.0. Settings, credentials, reports and captures are untouched.
+rm -f /opt/backup-report/app/api_collector.py
+
 cp -a "${SOURCE_DIR}/app/." /opt/backup-report/app/
 chown -R root:backup-report /opt/backup-report/app
 find /opt/backup-report/app -type d -exec chmod 0750 {} +

@@ -1,21 +1,24 @@
 # Pylon Backup Report
 
-Current Linux release: 0.9.0. The PDF page order, fields and conditional audit
-pages follow the six approved legacy reports. Active Backup rows are read from the NAS-generated
-`/ABB_Backup/ABB_Report/abb_daily_result_latest.csv` through
-`SYNO.FileStation.Download`; the application does not recalculate the NAS audit
-columns.
-Task name, status and latest result time are cross-checked against Active Backup
-Web API. Differences are warnings only and never overwrite the NAS CSV values.
-If the supplemental cross-check is unavailable, a valid current-day CSV can
-still produce the PDF, with the unavailable check shown as a warning.
+Current Linux release: 0.14.3. The primary NAS path contains no Synology API
+client. Chromium downloads the exact `abb_daily_result_YYYY-MM-DD.csv`
+for the report date through the normal File Station UI; an operator upload is
+available as an explicit fallback. Every main-table value is
+read from that file; `Last Backup` is displayed as `Start` and `End` is not
+displayed. The optional Task List image is supplied by the operator, while each
+Audit detail page is built from the appended `AUDIT` section in the same CSV.
+Yard Drive ShareSync is read through its dedicated Web API module. If the exact
+CSV or its contract cannot be verified, report generation stops.
 
 เว็บแอปภายในสำหรับสร้างรายงาน PDF จากระบบสำรองข้อมูลหลายแหล่ง โดยไม่พึ่ง Map Drive, SMB, WebDAV หรือการ Export CSV ด้วยมือ
 
 ## ความสามารถ
 
-- ดึงสถานะงานจาก Synology Active Backup for Business ผ่าน DSM Web API
-- ดึงสถานะ Synology Cloud Sync ผ่าน DSM Web API
+- ดาวน์โหลด `abb_daily_result_YYYY-MM-DD.csv` อัตโนมัติผ่านหน้า File Station หรืออัปโหลดด้วยมือเป็น fallback
+- วางภาพ Task List จาก Clipboard ด้วย Ctrl+V หรือเลือกไฟล์ เพื่อแสดงเหนือข้อมูล CSV ในหน้าแรก
+- เรียงแถวตาราง CSV และเลข No. ให้ตรงกับ Task List ที่แสดงด้านบน โดยไม่แก้ค่าข้อมูลจาก CSV
+- สร้างหน้า Audit จากส่วน `AUDIT` ท้าย CSV เดียวกัน หนึ่งหน้าต่อรายการ `Check`
+- อ่าน Yard Drive ShareSync ผ่าน Web API เฉพาะ NAS Yard
 - Login เข้า Sangfor aCloud ด้วย Headless Chromium และ Capture หน้า VM Backup
 - สร้าง PDF แบบ A4 แนวนอน ประกอบด้วยภาพรวม ตาราง Audit หน้ารายละเอียดต่อรายการ `Check` และหลักฐาน Sangfor ท้ายรายงาน
 - Login/Logout สำหรับทีมและเปลี่ยนรหัสผ่านผ่านหน้าเว็บ
@@ -30,10 +33,11 @@ Team Browser
     |
     v
 Pylon Backup Report (Python, port 8780)
-    |-- Synology DSM Web API --> Active Backup
-    |-- Synology DSM Web API --> Cloud Sync
-    |-- Headless Chromium ----> Sangfor aCloud
-    `-- ReportLab ------------> PDF + 7-day history
+    |-- File Station Chromium -> Exact dated CSV (manual fallback)
+    |-- Appended CSV AUDIT ----> One detail page per Check
+    |-- Yard Web API ----------> Drive ShareSync folders / sync history
+    |-- Headless Chromium -----> Sangfor aCloud
+    `-- ReportLab -------------> PDF + 7-day history
 ```
 
 รายละเอียดเพิ่มเติม:
@@ -43,6 +47,7 @@ Pylon Backup Report (Python, port 8780)
 - [Project handoff (Thai)](docs/HANDOFF_TH.md)
 - [Claude Code starting prompt (Thai)](docs/CLAUDE_START_PROMPT_TH.md)
 - [Approved report specification](docs/REPORT_SPEC.md)
+- [Approved v0.14.3 baseline](docs/APPROVED_BASELINE_V0.14.3.md)
 - [Linux deployment](docs/DEPLOYMENT.md)
 - [Operations and troubleshooting](docs/OPERATIONS.md)
 - [Security notes](docs/SECURITY.md)
@@ -71,4 +76,4 @@ python -m venv .venv
 
 ## สถานะ
 
-เวอร์ชันปัจจุบัน: `0.9.0-legacy-report-pattern`
+เวอร์ชันปัจจุบัน: `0.14.3-task-list-order`
